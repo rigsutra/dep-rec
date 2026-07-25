@@ -72,7 +72,10 @@ describe("#1 transitive advisory: the fix must not be a no-op", () => {
     assert.equal(pkg.dependencies, undefined, "no runtime dependencies");
     assert.equal(pkg.optionalDependencies, undefined, "no optional dependencies either — the flag was the problem");
     assert.equal(pkg.peerDependencies, undefined, "no peer dependencies");
-    assert.ok(pkg.devDependencies["@modelcontextprotocol/sdk"], "the SDK stays as a devDependency: the test client uses it");
+    assert.ok(
+      pkg.devDependencies["@modelcontextprotocol/sdk"],
+      "the SDK stays as a devDependency: tests/helpers.ts drives the server with the real client"
+    );
   });
 
   test("nothing shipped in dist imports the SDK or zod", () => {
@@ -102,13 +105,14 @@ describe("#1 transitive advisory: the fix must not be a no-op", () => {
     assert.ok(seen.size > 5, `expected to walk the real graph, only saw ${seen.size} files`);
   });
 
-  test("no file that imports a devDependency is included in the tarball", () => {
-    // Walking from the entry points is not enough. `src/test-client.ts` is
+  test("no source file that imports a devDependency ends up in the tarball", () => {
+    // Walking from the entry points is not enough. `src/test-client.ts` was
     // reachable from neither, so it passed that check while still being
-    // compiled into dist/ and published — a shipped ESM file importing
-    // @modelcontextprotocol/sdk, which consumers do not install. Dead code,
-    // but dead code with a broken import in a package about dependency
-    // hygiene. This asserts against the publish list itself.
+    // compiled into dist/ and published — a dead ESM file importing
+    // @modelcontextprotocol/sdk, which consumers do not install. It has
+    // since been deleted rather than excluded, but the guard stays: this one
+    // checks the publish list itself, so a future file cannot reintroduce
+    // the problem by simply not being imported from an entry point.
     const patterns: string[] = pkg.files;
     const excluded = patterns.filter((f) => f.startsWith("!")).map((f) => f.slice(1));
 

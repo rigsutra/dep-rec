@@ -166,13 +166,21 @@ it.
 
 ```bash
 npm install
-npm run test-client
+npm run test:mcp
 ```
 
-This spawns the server as a real subprocess and talks to it with the
-actual MCP client SDK — the same mechanism Claude Code, Cursor, etc.
-use — covering all three tools including two `check_package` calls
-(a real uncurated package, and a nonexistent one).
+This spawns the server as a real subprocess and drives it with the actual
+MCP client SDK — the same mechanism Claude Code, Cursor, etc. use — across
+63 protocol-level scenarios: handshake, published schemas, every tool,
+concurrent calls, cross-process store sharing, and the full hostile-input
+sweep.
+
+There used to be a smaller `npm run test-client` script doing a hand-rolled
+version of this. It was deleted rather than kept once the suite above
+covered strictly more, because it was still being compiled into `dist/` and
+published — a dead file importing a devDependency no consumer installs.
+Excluding it from the tarball would have left the same dead code in the
+repo; deleting it removes the question.
 
 ## Try it as an actual installed dependency
 
@@ -772,7 +780,7 @@ actually work. The symptom is a bare, unhelpful `fetch failed` with no
 further detail.
 
 If you're writing your own MCP client against this server (as both
-`test-client.ts` and `example-consumer/test.mjs` do), pass `env:
+`tests/helpers.ts` and `example-consumer/test.mjs` do), pass `env:
 process.env` (filtered to drop `undefined` values) explicitly in the
 `StdioClientTransport` config. If you're pointing a real assistant's MCP
 host at this server instead, check whether that host restricts the spawned

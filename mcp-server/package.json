@@ -27,8 +27,7 @@
   "main": "dist/server.js",
   "files": [
     "dist",
-    "data",
-    "!dist/test-client.js"
+    "data"
   ],
   "scripts": {
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
@@ -44,7 +43,6 @@
     "seed-db": "tsx src/store/seed.ts",
     "refresh": "tsx src/store/refresh-worker.ts",
     "server": "tsx src/server.ts",
-    "test-client": "tsx src/test-client.ts",
     "stress": "node --import tsx stress/run.ts"
   },
   "devDependencies": {
