@@ -5,9 +5,9 @@ interfaces sharing the exact same logic: an MCP server so an AI assistant
 can call it directly mid-conversation (the actual thesis this whole
 project is testing), and a plain CLI (`dep-rec`) for humans or any
 non-MCP-aware script/agent. Ships as a proper npm package — `npm install
---save-dev dep-rec-mcp-server` gives you both `dep-rec` and
-`dep-rec-mcp-server` commands — not just something you run from source
-inside this monorepo.
+--save-dev dep-rec` gives you both a `dep-rec` command (the CLI) and a
+`dep-rec-mcp-server` command (the MCP server) — not just something you
+run from source inside this monorepo.
 
 ## CLI
 
@@ -123,8 +123,8 @@ would be.
 
 ```bash
 npm run build        # tsc -> dist/, shebang preserved on dist/server.js
-npm pack              # produces dep-rec-mcp-server-0.1.0.tgz — exactly
-                      # what `npm publish` would upload, done locally
+npm pack              # produces dep-rec-0.1.0.tgz — exactly what
+                      # `npm publish` would upload, done locally
 ```
 
 See [`../example-consumer`](../example-consumer) for a from-scratch project
@@ -169,8 +169,8 @@ Add an entry like this to the assistant's MCP config (e.g. Claude Code's
 ```
 
 or, once installed as a real dependency in a project, point at
-`node_modules/dep-rec-mcp-server/dist/server.js` directly (that's exactly
-what `example-consumer/test.mjs` does). That's a change to your own
+`node_modules/dep-rec/dist/server.js` directly (that's exactly what
+`example-consumer/test.mjs` does). That's a change to your own
 editor/assistant configuration, so it's left as a manual step rather than
 something done for you here.
 

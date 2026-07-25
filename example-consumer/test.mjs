@@ -14,7 +14,7 @@ function textOf(result) {
 async function withClient(fn) {
   const transport = new StdioClientTransport({
     command: "node",
-    args: ["node_modules/dep-rec-mcp-server/dist/server.js"],
+    args: ["node_modules/dep-rec/dist/server.js"],
     // The MCP SDK's default spawn environment on Windows is a short allowlist
     // (APPDATA, PATH, SYSTEMROOT, ...) that doesn't include whatever this
     // network layer needs for outbound HTTPS — check_package's live registry/

@@ -1,12 +1,28 @@
 {
-  "name": "dep-rec-mcp-server",
-  "private": true,
+  "name": "dep-rec",
+  "private": false,
   "version": "0.1.0",
   "type": "module",
-  "description": "Recommend the best-fit npm package for a described need, or check any arbitrary package's health/security live — as an MCP server for AI assistants, or a plain CLI.",
+  "license": "MIT",
+  "author": "Ashish Singh",
+  "description": "Recommend the best-fit npm package for a described need, or check any arbitrary package's health/security live — as a CLI or an MCP server for AI assistants.",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/AshishPodtech/package_rec.git",
+    "directory": "mcp-server"
+  },
+  "keywords": [
+    "npm",
+    "mcp",
+    "model-context-protocol",
+    "cli",
+    "dependency",
+    "package-recommendation",
+    "security"
+  ],
   "bin": {
-    "dep-rec-mcp-server": "dist/server.js",
-    "dep-rec": "dist/cli.js"
+    "dep-rec": "dist/cli.js",
+    "dep-rec-mcp-server": "dist/server.js"
   },
   "main": "dist/server.js",
   "files": [

@@ -1,14 +1,14 @@
 # example-consumer
 
 A from-scratch project with no access to the monorepo's source — the
-actual proof that `dep-rec-mcp-server` behaves like a real npm dependency,
-not just "runs from source when I `cd` into the right folder."
+actual proof that `dep-rec` behaves like a real npm dependency, not just
+"runs from source when I `cd` into the right folder."
 
 ## Setup
 
 ```bash
 cd ../mcp-server && npm run build && npm pack
-cd ../example-consumer && npm install --save-dev ../mcp-server/dep-rec-mcp-server-0.1.0.tgz
+cd ../example-consumer && npm install --save-dev ../mcp-server/dep-rec-0.1.0.tgz
 ```
 
 ## Two interfaces, same installed package
@@ -27,7 +27,7 @@ npx dep-rec categories --json
 node test.mjs
 ```
 
-That script spawns `node_modules/dep-rec-mcp-server/dist/server.js` as a
+That script spawns `node_modules/dep-rec/dist/server.js` as a
 subprocess and talks to it with the actual MCP client SDK — including the
 cross-process cache-sharing test (two fully separate spawned servers,
 simulating two different people, checking the same never-before-seen
