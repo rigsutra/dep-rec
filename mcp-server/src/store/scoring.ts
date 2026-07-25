@@ -206,6 +206,11 @@ export function scoreAbsolute(r: PackageRow): ScoreResult {
 
   const compatibility = compatibilityScore(r.esm_support, r.typescript_support, reasons);
   const community = clamp(Math.log10(safeDownloads(r.weekly_downloads) + 1) * 14);
+  if (r.downloads_check_failed) {
+    // Same honesty rule as the OSV check: an unconfirmed number is reported
+    // as unconfirmed rather than presented as a measurement.
+    reasons.push("weekly download count could not be freshly verified (npm downloads API unreachable) — adoption figure may be stale");
+  }
   const supplyChain = supplyChainScore(r.dependencies_count, r.has_install_scripts, reasons);
 
   const rawTotal = 0.25 * security + 0.25 * maintenance + 0.2 * compatibility + 0.2 * community + 0.1 * supplyChain;

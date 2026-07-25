@@ -48,7 +48,7 @@ async function fetchAndStore(
   const doc = await fetchPackageDoc(name);
   if (!doc.found) return { found: false, reason: doc.reason, code: doc.code };
 
-  const [weeklyDownloads, vulnResult] = await Promise.all([
+  const [fetchedDownloads, vulnResult] = await Promise.all([
     fetchWeeklyDownloads(name),
     doc.latestVersion
       ? queryVulnerabilities(name, doc.latestVersion)
@@ -62,6 +62,13 @@ async function fetchAndStore(
   // of a false "no known vulnerabilities."
   const securityCheckFailed = !vulnResult.ok;
   const vulnerabilityIds = vulnResult.ok ? vulnResult.vulnerabilityIds : existing?.vulnerability_ids ?? [];
+
+  // Same rule for adoption. A failed downloads lookup is not "0 downloads":
+  // keep the last figure we actually saw and record that this refresh could
+  // not confirm it, rather than writing a zero that would then be read as
+  // fact by scoring, eligibility and the typosquat ratio alike.
+  const downloadsCheckFailed = fetchedDownloads === null;
+  const weeklyDownloads = fetchedDownloads ?? existing?.weekly_downloads ?? 0;
 
   const nowIso = new Date().toISOString();
   upsertRaw({
@@ -81,6 +88,7 @@ async function fetchAndStore(
     weekly_downloads: weeklyDownloads,
     vulnerability_ids: vulnerabilityIds,
     security_check_failed: securityCheckFailed,
+    downloads_check_failed: downloadsCheckFailed,
     raw_fetched_at: nowIso,
     first_seen_at: existing?.first_seen_at ?? nowIso,
   });

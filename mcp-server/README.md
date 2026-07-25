@@ -128,9 +128,18 @@ would be.
 
 ```bash
 npm run build        # tsc -> dist/, shebang preserved on dist/server.js
-npm pack              # produces dep-rec-0.1.3.tgz — exactly what
+npm pack              # produces dep-rec-0.2.0.tgz — exactly what
                       # `npm publish` would upload, done locally
 ```
+
+Worth noting what that scratch project's own `package.json` now looks like:
+installing `dep-rec` adds **one** package and `npm audit` reports zero
+findings. `example-consumer` does carry `@modelcontextprotocol/sdk` as its
+own devDependency — it needs a *client* to drive the server
+programmatically — and that reintroduces `GHSA-frvp-7c67-39w9` in the
+example project. That is the cost of the SDK client, not of `dep-rec`, and
+it is exactly the cost this package no longer passes on. Anyone pointing
+an editor at the MCP server needs no client of their own.
 
 See [`../example-consumer`](../example-consumer) for a from-scratch project
 that installs that tarball with `npm install --save-dev <path-to-tgz>` and
@@ -161,14 +170,11 @@ npm install --save-dev dep-rec
 npx dep-rec check left-pad
 ```
 
-The MCP SDK and `zod` are **optional** dependencies — only the MCP server
-needs them, and it loads them dynamically. If you only want the CLI, skip
-the whole subtree and get a package with no transitive dependencies at
-all (see finding #1 in the second review below for why that matters):
-
-```bash
-npm install --save-dev dep-rec --omit=optional
-```
+**`dep-rec` has no dependencies.** Not "few" — none. `npm install dep-rec`
+adds exactly one package to your tree, and `npm audit` has nothing to say
+about it. For a tool whose entire subject is dependency hygiene that felt
+like the minimum bar, and getting there meant speaking MCP directly rather
+than through an SDK (see finding #1 below).
 
 or globally:
 
@@ -268,7 +274,7 @@ warning on every invocation, and the 24h cache window meaning a
 just-disclosed CVE can be masked for up to a day on a cached lookup — both
 called out earlier in this README as known, accepted tradeoffs.
 
-## Second review — v0.1.2 → v0.1.3
+## Second review — v0.1.2 → v0.2.0
 
 A second external review, this time run against the **published** `0.1.2`
 package rather than the source, found six more. It also built a standalone
@@ -289,35 +295,35 @@ fixed; each has a regression test in
 
    There is no dependency-resolution fix available: the advisory is fixed
    only in `2.0.5`, `@modelcontextprotocol/sdk` pins `^1.19.9`, and no
-   published SDK release has moved that range. What a package *can* do is
-   stop forcing the subtree on people who don't need it. The SDK and `zod`
-   are now **optional** dependencies, loaded dynamically, used by nothing
-   except `src/server.ts`:
+   published SDK release has moved that range.
 
-   ```bash
-   npm install -D dep-rec --omit=optional   # zero-dependency CLI
+   `0.1.3` made the SDK an optional dependency, so `--omit=optional` gave
+   a clean CLI. That was still the wrong answer, and the right question
+   came from the person reading it: *if we don't really need it, why is a
+   default install still shipping it?* A tool about dependency hygiene
+   should not have an opt-out flag for its own advisory.
+
+   So `0.2.0` removes the dependency instead of hiding it. MCP over stdio
+   is newline-delimited JSON-RPC 2.0, and the SDK's only other job here
+   was turning zod schemas into the JSON Schema that `tools/list`
+   publishes. Both are small and now live in
+   [`src/mcp/`](src/mcp) — about 300 lines, no dependencies.
+
+   Verified rather than assumed: the entire 63-test MCP protocol suite
+   still passes, driven by the **real official SDK client** over real
+   stdio. If the reference client can drive it through handshake, schema
+   publication, concurrent tool calls and every malformed-input case, it
+   is compliant in the only way that matters. The SDK stays as a
+   `devDependency` for exactly that purpose.
+
+   ```
+   dep-rec@0.2.0
+   └── (end)
    ```
 
-   A default install is unchanged, so `npx dep-rec-mcp-server` still works
-   with no extra steps. Verified end-to-end against the real `0.1.3`
-   tarball in a scratch project: `npm install -D <tgz> --omit=optional`
-   reports *"added 1 package… found 0 vulnerabilities"*, `npm ls --all`
-   shows both optional deps UNMET, nothing but `dep-rec` is actually on
-   disk, `npx dep-rec check left-pad` works normally, and
-   `node node_modules/dep-rec/dist/server.js` exits with the actionable
-   message above rather than a module-resolution stack trace.
-
-   One caveat, since the point of this entry is not to overclaim again: a
-   **bare** `npm audit` still reports the advisory even with the packages
-   absent, because it audits the lockfile's full dependency graph rather
-   than what is on disk. `npm audit --omit=optional` reports zero, and so
-   does a plain `npm audit` once `omit=optional` is in the project's
-   `.npmrc`. So: the vulnerable code is genuinely never installed, and the
-   audit *report* needs that one flag to agree.
-
-   The misleading `overrides` entry is gone, and a test asserts it stays
-   gone, that nothing reachable from `cli.ts` imports either optional
-   dependency, and that the package declares no hard runtime dependencies.
+   A test now asserts there is no `overrides`, no `dependencies`, no
+   `optionalDependencies`, no `peerDependencies`, and that nothing
+   reachable from either entry point imports a devDependency.
 
 2. **A store from an older release crashed instead of migrating.**
    `schema.ts` only ran `CREATE TABLE IF NOT EXISTS`, so an existing table
@@ -385,6 +391,36 @@ fixed; each has a regression test in
    malformed registry URL — that shape is now rejected as invalid, and the
    escape uses `replaceAll` regardless.
 
+7. **A `constructor`-keyed argument escaped as a protocol error.** One
+   payload out of 77 in a higher-intensity fuzzing pass broke an otherwise
+   uniform pattern: every malformed input — SQL shapes, traversal,
+   homoglyphs, fullwidth Unicode, RTL overrides, emoji, null bytes,
+   200k-character names, shell metacharacters, `NaN`/`Infinity` limits —
+   produced a clean `isError: true` tool result, but
+   `{ constructor: { prototype: {…} } }` produced a raw
+   `MCP error -32603: expected record, received object`. Not exploitable;
+   the problem is that a model can read a tool result and correct itself,
+   while a protocol-level failure gives it nothing. Cause: a key named
+   `constructor` on an object literal resolves to an inherited built-in
+   when read with plain member access, which confuses a plain-object
+   check. Every read of a caller-supplied object now goes through
+   `hasOwnProperty`, and validated arguments are built on a null
+   prototype. Eight prototype-shaped payloads are asserted to come back as
+   ordinary bad input.
+
+8. **A failed downloads lookup was silently read as zero.** Carried over
+   from the previous review and much more consequential now that the
+   typosquat floor is ratio-based: `target >= subject * 100` collapses to
+   `target >= 0` when the subject's own count is a spurious `0`, so a
+   single rate-limited request could brand any package with a popular
+   near-neighbour a typosquat. `fetchWeeklyDownloads` now returns
+   `number | null`, where only a genuine 404 is zero. A `null` carries
+   through to a `downloads_check_failed` column: the last real figure is
+   kept rather than overwritten, scoring says the count is unverified,
+   an unverified-and-absent count fails the eligibility bar rather than
+   passing it, and typosquat detection declines to answer at all. Same
+   fail-closed rule the OSV check already followed.
+
 ### Two more, found while fixing those six
 
 Both surfaced from a single intermittent test failure — the sort of thing
@@ -410,6 +446,147 @@ process took longer than the hold, so the two never actually collided.
 The holder now keeps the lock until explicitly told to let go, the writer
 announces itself before blocking, and the test asserts it genuinely
 waited — a version that can't pass by accident.
+
+## Stress testing (`npm run stress`)
+
+Separate from the test suite, and with a different job. A test suite
+asserts known properties; [`stress/`](stress) exists to find the point
+where this falls over and report what it does on the way down. Four
+phases, all against temp copies of the store.
+
+```bash
+npm run stress               # everything
+npm run stress -- --phase=a  # one phase
+```
+
+**Phase A — 269 live lookups across 8 quality tiers.** Real npm traffic:
+117 mainstream packages, 25 deprecated/abandoned, 19 squat-shaped, 16
+obscure-but-real, 25 synthetic nonexistent, 34 structurally malformed, 25
+hostile (injection/traversal/template), 8 homoglyph.
+
+| tier | n | resolved | recommendable | squat-flagged |
+|---|---|---|---|---|
+| mainstream | 117 | 116 | 106 | 0 |
+| deprecated | 25 | 24 | 6 | 0 |
+| squat-shaped | 19 | 14 | 0 | **14** |
+| obscure-real | 16 | 15 | 1 | 0 |
+| nonexistent | 25 | 0 | — | — |
+| malformed | 34 | 0 | — | — |
+| hostile | 25 | 0 | — | — |
+| homoglyph | 8 | 0 | — | — |
+
+Zero exceptions in 269 lookups. Every malformed and hostile input was
+rejected as `invalid-name` **before any network call**; every synthetic
+name came back `not-found`; no hostile input ever resolved as a real
+package. Homoglyph names are rejected as invalid rather than detected as
+impersonation — an honest gap, since a Cyrillic `е` is not a valid npm
+name character in the first place.
+
+**What Phase A actually found — the adoption-verification hole.** The run
+initially reported **20.1% of resolved packages with an unverifiable
+download count**. Because an unverified count now (correctly) disables
+typosquat detection, that meant *one in five packages silently lost its
+squat check* — the detector went from catching 14/19 known squats down to
+4/19, without saying so. Retrying didn't fix it: the failures arrived in
+one contiguous block spanning unrelated packages, which is the signature
+of a sustained throttling window rather than scattered transient errors.
+A single `check_package` also fans out (the typosquat step looks up each
+candidate impersonation target), so the request count is a multiple of the
+package count.
+
+Fixed with an adaptive client-side limiter that widens spacing on every
+`429` and decays while succeeding, so a single interactive lookup pays
+nothing and a bulk sweep self-throttles:
+
+| | unverified adoption | squats caught | wall clock (269 pkgs) |
+|---|---|---|---|
+| before | 20.1% | 4/19 | 22s |
+| after | **4.7%** | **14/19** | 105s |
+
+Five times slower on a deliberate worst-case burst, in exchange for the
+security feature not turning itself off. For interactive use — a few
+lookups, 24h cache — nothing changes.
+
+**Phase B — concurrency ramp,** every row forced stale so all processes
+write:
+
+| procs | ok | failed | "database is locked" | p50 | p95 |
+|---|---|---|---|---|---|
+| 1 | 1 | 0 | 0 | 2.4s | 2.4s |
+| 4 | 4 | 0 | 0 | 2.9s | 3.7s |
+| 8 | 8 | 0 | 0 | 2.8s | 4.3s |
+| 16 | 16 | 0 | 0 | 4.9s | 8.1s |
+| 32 | 32 | 0 | 0 | 13.2s | 20.5s |
+
+No breaking point found up to 32 concurrent writing processes. Latency
+degrades linearly past 16 — the write lock serialises, as designed — but
+nothing fails, and the "database is locked" error that started this whole
+thread does not reappear.
+
+**Phase C — 22 poisoned store rows** (`NaN`, negative counts, unparseable
+JSON, 1970/2999 dates, 100k-character names, out-of-range scores, a
+5000-entry reasons array). This one found real bugs:
+
+- **One corrupt JSON column took down the entire tool.** A single
+  unparseable `categories` value threw straight out of the row mapper, so
+  `categories` and every `recommend` call died with a bare
+  `Expected property name or '}' in JSON at position 1` and exit 1 — no
+  indication of which row. A store file can be corrupted by a partial
+  write or an interrupted upgrade. Now every JSON column parses
+  defensively; a damaged row is readable, disclosed via
+  `store_row_damaged`, and never recommendable. An unreadable
+  *vulnerability* list is folded into `security_check_failed` rather than
+  becoming an empty one, because `[]` reads as "no known vulnerabilities".
+- **A corrupt score of `999999` was ranked #1** and reported verbatim.
+  Stored scores outside 0–100 are now rejected as damaged.
+- **One bad row produced a 216 KB response.** Not a crash — worse, in
+  context: it silently eats a model's context window. Reasons are now
+  bounded per row (24 entries, 400 chars each). Real scoring emits about
+  six short reasons, so this never fires in normal operation. **216 KB →
+  6.9 KB.**
+- SQLite is dynamically typed, so an `INTEGER` column will happily hold
+  the string `"NaN"` — and `"NaN" < 10000` is `false`, meaning a corrupt
+  download count *passed* the adoption floor it should have failed.
+  Numerics are now coerced at the read boundary.
+
+Three poisoned rows still surface in recommendations
+(`huge-downloads`, `huge-deps`, `nan-cadence`). Those are well-formed rows
+with implausible-but-possible values; distinguishing them would require
+cross-checking npm, which the refresh job does. Left as-is rather than
+overfitted to the fixture.
+
+**Phase D — is the output usable by a model?**
+
+```
+mean score — mainstream 81.6 | deprecated 56.4 | obscure 62.4
+mainstream packages judged recommendable: 87.9%
+```
+
+The score separates good from bad by ~25 points, which is the property
+that matters: a model can act on it. Every recommendation carries reasons.
+Two honest weaknesses it exposed, neither fixed here:
+
+- **Vendor-specific libraries win generic queries.** `http client` returns
+  `gaxios` (Google's internal client) over `axios`/`got`; `logger` returns
+  `@azure/logger`; `date` returns `spacetime`. They genuinely score well —
+  actively maintained, no vulnerabilities, few dependencies — but no
+  human would pick them for a generic need. The ranking has no notion of
+  "general-purpose" versus "vendor-internal", and the keyword→category
+  map is a synonym table, not search. **This is the biggest real gap in
+  the recommendation half of the tool.**
+- **6 of 24 abandoned packages are still recommendable** — `babel-core`,
+  `colors`, `bower`, `grunt-contrib-jshint`,
+  `nodemailer-smtp-transport`, `tslint-config-prettier`. None are
+  *formally* deprecated on npm and all still have large download counts,
+  so they clear every mechanical bar. `colors` is the notable one: the
+  package sabotaged by its own maintainer in 2022. Detecting this needs a
+  signal the tool does not collect (repository archived, successor
+  package, advisory-by-reputation).
+
+The `check_package` half is in much better shape than the
+`recommend_package` half, which matches what it is for: verifying a name
+an assistant already produced is a well-defined question, and "what
+should I use for X" is not.
 
 **Confirmed good by the same review, worth recording:** every malformed
 input thrown at the MCP tools (negative/zero/float/huge/string limits,
@@ -518,7 +695,7 @@ npm run test:gaps    # what the spec claimed but was never built
 npm run test:review  # regressions for every externally-reported finding
 ```
 
-411 adversarial scenarios across >1000 packages, using `node:test` only (no
+420 adversarial scenarios across >1000 packages, using `node:test` only (no
 framework dependency). Every suite runs against a temp copy of the store, so
 tests can never corrupt the shipped `data/store.db`.
 

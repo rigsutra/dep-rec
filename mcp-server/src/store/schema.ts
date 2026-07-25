@@ -37,6 +37,7 @@ export const PACKAGES_COLUMNS: ColumnDef[] = [
   { name: "weekly_downloads", type: "INTEGER", notNull: true, default: "0" },
   { name: "vulnerability_ids", type: "TEXT", notNull: true, default: "'[]'" },
   { name: "security_check_failed", type: "INTEGER", notNull: true, default: "0" },
+  { name: "downloads_check_failed", type: "INTEGER", notNull: true, default: "0" },
   { name: "raw_fetched_at", type: "TEXT", notNull: true },
   { name: "first_seen_at", type: "TEXT", notNull: true },
   { name: "recommended_version", type: "TEXT" },

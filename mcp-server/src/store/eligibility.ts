@@ -50,11 +50,20 @@ export interface Eligibility {
 export function checkRecommendable(r: PackageRow): Eligibility {
   const failures: string[] = [];
 
+  if (r.store_row_damaged) {
+    failures.push("the stored record for this package is corrupt and could not be fully read — nothing about it can be trusted enough to recommend it");
+  }
+
   if (r.deprecated) {
     failures.push("marked deprecated on npm");
   }
 
-  if (r.weekly_downloads < MIN_WEEKLY_DOWNLOADS) {
+  // An unverified adoption figure cannot clear an adoption bar. Letting a
+  // package through on a number the last refresh failed to confirm would be
+  // the same fail-open mistake as reporting an unreachable OSV as "clean".
+  if (r.downloads_check_failed && r.weekly_downloads === 0) {
+    failures.push("weekly download count could not be verified (npm downloads API unreachable) — adoption is unknown, not zero");
+  } else if (r.weekly_downloads < MIN_WEEKLY_DOWNLOADS) {
     failures.push(
       `only ${r.weekly_downloads.toLocaleString("en-US")} weekly downloads (recommendation floor is ${MIN_WEEKLY_DOWNLOADS.toLocaleString("en-US")})`
     );

@@ -2,7 +2,7 @@
 
 Adversarial by design. The goal is not to demonstrate that the code works —
 it is to find the places where it lies, crashes, or quietly does the wrong
-thing. Seven suites, 411 scenarios, >1000 packages exercised.
+thing. Seven suites, 420 scenarios, >1000 packages exercised.
 
 ```bash
 npm test             # everything
@@ -34,7 +34,7 @@ added for exactly this reason — the path used to be hardcoded.)
 | `cli.test.ts` | Argument parsing, exit codes, stream discipline, `--json` parseability, locale independence, path traversal and SQL injection through argv |
 | `mcp.test.ts` | Protocol handshake, schema validation, tool *descriptions* as contract, concurrency, cross-process store sharing, CLI/MCP parity |
 | `adversarial-gaps.test.ts` | Concepts the spec claimed but that were never built — asserts the tool never overclaims, and prints a coverage inventory |
-| `review-findings.test.ts` | Every finding from an external review, reproduced as a regression: dependency shape, legacy-store migration, write-lock contention, typosquat floors, limit validation, lookup-miss classification |
+| `review-findings.test.ts` | Every finding from an external review, reproduced as a regression: dependency shape, legacy-store migration, write-lock contention, typosquat floors, limit validation, lookup-miss classification, prototype-shaped argument keys, unverified-adoption handling |
 
 ## The rule the gap suite follows
 
@@ -165,3 +165,23 @@ itself before blocking, and the test asserts it actually waited.
   for an obscure name is the tool's purpose. It is excluded from
   recommendations and the suite asserts that, printing it under
   `[tracked-but-never-recommended]`.
+
+## What the stress harness found that the suite did not
+
+[`stress/`](../stress) (`npm run stress`) is not a test suite — it looks for
+the point where things fall over rather than asserting known properties.
+Three bugs came out of it that 411 assertions had not:
+
+- **One corrupt JSON column took down the whole tool.** Every suite copies a
+  *healthy* `data/store.db`, so no test had ever read a damaged row.
+- **A corrupt score of `999999` was ranked #1.** Scores were validated where
+  they are computed, never where they are read back.
+- **One bad row produced a 216 KB response.** No test asserted anything about
+  output *size* — only shape. For an MCP tool feeding a model, size is a
+  correctness property.
+
+Plus a measurement no assertion would have produced: under a 269-package
+burst, 20% of adoption lookups were throttled, which silently disabled
+typosquat detection on those packages (14/19 known squats caught fell to
+4/19). That is the kind of finding that only shows up under load, and only
+if something is counting.

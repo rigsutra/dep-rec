@@ -54,6 +54,7 @@ async function main() {
       weekly_downloads: p.downloads.weekly,
       vulnerability_ids: p.security.vulnerabilityIds,
       security_check_failed: false, // stage1-collector's OSV batch call succeeded for these
+      downloads_check_failed: false,
       raw_fetched_at: nowIso,
       first_seen_at: nowIso,
     });

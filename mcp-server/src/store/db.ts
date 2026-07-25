@@ -11,7 +11,15 @@ import { SCHEMA_SQL, migratePackagesTable } from "./schema.js";
 
 // Overridable so tests (and anyone wanting a separate store per project)
 // don't mutate the store.db that ships inside the package.
-const DB_PATH = process.env.DEP_REC_DB_PATH ?? fileURLToPath(new URL("../../data/store.db", import.meta.url));
+//
+// Resolved on first use rather than at module load. Reading it at load time
+// meant an importer could not point the store somewhere else after the fact
+// — which quietly bit the test suite: a test that imported checkPackage
+// directly opened the SHIPPED database no matter what it set afterwards, and
+// merely opening a SQLite file in WAL mode rewrites its header.
+function resolveDbPath(): string {
+  return process.env.DEP_REC_DB_PATH ?? fileURLToPath(new URL("../../data/store.db", import.meta.url));
+}
 
 // How long a statement waits for another process to release the write lock
 // before giving up with SQLITE_BUSY. Without this, SQLite fails instantly:
@@ -25,7 +33,7 @@ const BUSY_TIMEOUT_MS = Number(process.env.DEP_REC_BUSY_TIMEOUT_MS ?? 10_000);
 let dbInstance: DatabaseSync | null = null;
 function getDb(): DatabaseSync {
   if (!dbInstance) {
-    const db = new DatabaseSync(DB_PATH);
+    const db = new DatabaseSync(resolveDbPath());
     // Set before anything else: switching journal mode itself takes a lock,
     // so a busy_timeout applied afterwards would be too late to protect the
     // one statement most likely to collide on a cold concurrent start.
@@ -76,6 +84,7 @@ export interface PackageRow {
   weekly_downloads: number;
   vulnerability_ids: string[];
   security_check_failed: boolean;
+  downloads_check_failed: boolean;
   raw_fetched_at: string;
   first_seen_at: string;
   recommended_version: string | null;
@@ -89,19 +98,109 @@ export interface PackageRow {
   score_reasons: string[];
   score_method: "category-relative" | "absolute" | null;
   score_computed_at: string | null;
+  /** Derived at read time, not a column: the stored record failed to parse cleanly. */
+  store_row_damaged: boolean;
 }
 
+// SQLite is dynamically typed: a column declared INTEGER will happily hold
+// the string "NaN" if something upstream ever writes one. A non-numeric value
+// reaching a comparison silently evaluates false, which is how a corrupt
+// download count sails through an adoption floor it should fail.
+function finiteOr<T extends number | null>(value: unknown, fallback: T): number | T {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/**
+ * Parses a JSON string-array column, returning `null` when the stored value
+ * is unreadable. Every read of a JSON column goes through this: a single
+ * unparseable one used to throw straight out of the row mapper, taking down
+ * `categories` and every `recommend` call with a bare
+ * "Expected property name or '}'" and exit 1. One damaged row made the whole
+ * tool unusable, and the message did not even say which row.
+ */
+function parseStringArray(raw: unknown): string[] | null {
+  if (raw === null || raw === undefined) return [];
+  if (typeof raw !== "string") return null;
+  try {
+    const v = JSON.parse(raw);
+    if (!Array.isArray(v)) return null;
+    return v.filter((x): x is string => typeof x === "string");
+  } catch {
+    return null;
+  }
+}
+
+// Bounds on what a single stored row may contribute to a response. Real
+// scoring emits about six reasons of well under 200 characters, so these
+// never fire in normal operation — they exist because a corrupt row can, and
+// a `recommend` call that returns 216 KB of text does not fail loudly, it
+// just quietly consumes a model's entire context window.
+const MAX_REASONS_PER_ROW = 24;
+const MAX_REASON_CHARS = 400;
+// npm's own hard limit. A stored name longer than this cannot correspond to
+// a real package, whatever else the row says.
+const MAX_NAME_CHARS = 214;
+
 function rowToPackage(r: any): PackageRow {
+  // A damaged row is readable, disclosed, and never recommendable.
+  let damaged = false;
+  const parseArray = (raw: unknown): string[] => {
+    const parsed = parseStringArray(raw);
+    if (parsed === null) {
+      damaged = true;
+      return [];
+    }
+    return parsed;
+  };
+
+  const categories = parseArray(r.categories);
+  const vulnBefore = damaged;
+  const vulnerability_ids = parseArray(r.vulnerability_ids);
+  // An unreadable vulnerability list must not become an empty one: "[]" reads
+  // as "no known vulnerabilities", which is the fail-open answer this project
+  // exists to avoid. Fold it into the same flag a failed OSV lookup sets.
+  const vulnUnreadable = damaged && !vulnBefore;
+  const allReasons = parseArray(r.score_reasons);
+  if (allReasons.length > MAX_REASONS_PER_ROW) damaged = true;
+  const score_reasons = allReasons
+    .slice(0, MAX_REASONS_PER_ROW)
+    .map((s) => (s.length > MAX_REASON_CHARS ? `${s.slice(0, MAX_REASON_CHARS)}…` : s));
+
+  if (typeof r.name === "string" && r.name.length > MAX_NAME_CHARS) damaged = true;
+
+  // A stored score outside 0-100 is not a score. Left as-is it would sort to
+  // the top of every ranking and be reported to a model as fact — a poisoned
+  // row with score_total 999999 was ranked #1 before this.
+  // Counts cannot be negative. Absurdly *large* ones are left alone — there
+  // is no principled line between "very popular" and "impossible" — but a
+  // negative dependency count is not a number the world can produce.
+  const maintainers = finiteOr(r.maintainers, 0);
+  const dependencies_count = finiteOr(r.dependencies_count, 0);
+  const weekly_downloads = finiteOr(r.weekly_downloads, 0);
+  if (maintainers < 0 || dependencies_count < 0 || weekly_downloads < 0) damaged = true;
+
+  const storedScore = finiteOr(r.score_total, null);
+  const scoreInRange = storedScore !== null && storedScore >= 0 && storedScore <= 100;
+  if (storedScore !== null && !scoreInRange) damaged = true;
+
   return {
     ...r,
-    categories: JSON.parse(r.categories),
-    vulnerability_ids: JSON.parse(r.vulnerability_ids),
-    score_reasons: JSON.parse(r.score_reasons),
+    categories,
+    vulnerability_ids,
+    score_reasons,
+    maintainers,
+    dependencies_count,
+    weekly_downloads,
+    release_cadence_days: finiteOr(r.release_cadence_days, null),
+    score_total: scoreInRange ? storedScore : null,
     deprecated: Boolean(r.deprecated),
     esm_support: Boolean(r.esm_support),
     typescript_support: Boolean(r.typescript_support),
-    security_check_failed: Boolean(r.security_check_failed),
+    security_check_failed: Boolean(r.security_check_failed) || vulnUnreadable,
+    downloads_check_failed: Boolean(r.downloads_check_failed),
     has_install_scripts: Boolean(r.has_install_scripts),
+    store_row_damaged: damaged,
   };
 }
 
@@ -138,7 +237,9 @@ export function listAllCategoryCounts(): Array<{ key: string; count: number }> {
   const rows = getDb().prepare("SELECT categories FROM packages").all() as Array<{ categories: string }>;
   const counts = new Map<string, number>();
   for (const r of rows) {
-    for (const c of JSON.parse(r.categories) as string[]) counts.set(c, (counts.get(c) ?? 0) + 1);
+    // A row whose category list is corrupt is skipped rather than allowed to
+    // abort the whole listing.
+    for (const c of parseStringArray(r.categories) ?? []) counts.set(c, (counts.get(c) ?? 0) + 1);
   }
   return [...counts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => a.key.localeCompare(b.key));
 }
@@ -164,6 +265,7 @@ export interface RawUpsert {
   weekly_downloads: number;
   vulnerability_ids: string[];
   security_check_failed: boolean;
+  downloads_check_failed: boolean;
   raw_fetched_at: string;
   first_seen_at: string;
 }
@@ -177,8 +279,8 @@ export function upsertRaw(r: RawUpsert): void {
       `INSERT INTO packages
         (name, categories, license, maintainers, created_at, modified_at, latest_version,
          dependencies_count, has_install_scripts, deprecated, esm_support, typescript_support, release_cadence_days,
-         weekly_downloads, vulnerability_ids, security_check_failed, raw_fetched_at, first_seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         weekly_downloads, vulnerability_ids, security_check_failed, downloads_check_failed, raw_fetched_at, first_seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(name) DO UPDATE SET
          categories=excluded.categories, license=excluded.license, maintainers=excluded.maintainers,
          created_at=excluded.created_at, modified_at=excluded.modified_at, latest_version=excluded.latest_version,
@@ -186,6 +288,7 @@ export function upsertRaw(r: RawUpsert): void {
          deprecated=excluded.deprecated, esm_support=excluded.esm_support, typescript_support=excluded.typescript_support,
          release_cadence_days=excluded.release_cadence_days, weekly_downloads=excluded.weekly_downloads,
          vulnerability_ids=excluded.vulnerability_ids, security_check_failed=excluded.security_check_failed,
+         downloads_check_failed=excluded.downloads_check_failed,
          raw_fetched_at=excluded.raw_fetched_at`
     )
     .run(
@@ -205,6 +308,7 @@ export function upsertRaw(r: RawUpsert): void {
       r.weekly_downloads,
       JSON.stringify(r.vulnerability_ids),
       Number(r.security_check_failed),
+      Number(r.downloads_check_failed),
       r.raw_fetched_at,
       r.first_seen_at
     );

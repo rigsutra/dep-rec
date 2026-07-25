@@ -12,16 +12,28 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, copyFileSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { REPO_ROOT, runCli, openMcp, cleanEnv } from "./helpers.js";
+import { REPO_ROOT, runCli, openMcp, cleanEnv, row } from "./helpers.js";
 import { PACKAGES_COLUMNS } from "../src/store/schema.js";
 import { checkTyposquat } from "../src/store/typosquat.js";
 import { normalizeLimit, MAX_LIMIT, checkPackage } from "../src/data.js";
-import { validatePackageName, fetchPackageDoc } from "../src/sources/npm.js";
+import { validatePackageName, fetchPackageDoc, fetchWeeklyDownloads } from "../src/sources/npm.js";
+import { isRecommendable, checkRecommendable } from "../src/store/eligibility.js";
 
 let workDir: string;
+// Every MCP session in this file points here, never at data/store.db. An
+// earlier revision of this suite forgot, and a single `check_package` for
+// "react" wrote an uncategorised row straight into the artifact that ships
+// inside the package — the exact pollution bug the corpus suite exists to
+// catch, which is how it was found.
+let storePath: string;
 
 before(() => {
   workDir = mkdtempSync(join(tmpdir(), "dep-rec-review-"));
+  storePath = join(workDir, "mcp-store.db");
+  copyFileSync(join(REPO_ROOT, "data/store.db"), storePath);
+  // This file also calls checkPackage() in-process, not just through a
+  // subprocess, so the in-process store has to be redirected too.
+  process.env.DEP_REC_DB_PATH = storePath;
 });
 
 after(() => {
@@ -52,15 +64,20 @@ describe("#1 transitive advisory: the fix must not be a no-op", () => {
     );
   });
 
-  test("the MCP SDK subtree is opt-out-able", () => {
-    assert.ok(pkg.optionalDependencies?.["@modelcontextprotocol/sdk"], "SDK must be an optionalDependency");
-    assert.ok(pkg.optionalDependencies?.zod, "zod must be an optionalDependency");
-    assert.equal(pkg.dependencies, undefined, "nothing may be a hard runtime dependency");
+  test("the package has no runtime dependencies of any kind", () => {
+    // 0.1.3 made the SDK optional, which still shipped the advisory to
+    // anyone doing a plain `npm install` and put the burden on them to know
+    // about --omit=optional. A tool about dependency hygiene should not have
+    // an opt-out flag for its own; MCP is now spoken directly.
+    assert.equal(pkg.dependencies, undefined, "no runtime dependencies");
+    assert.equal(pkg.optionalDependencies, undefined, "no optional dependencies either — the flag was the problem");
+    assert.equal(pkg.peerDependencies, undefined, "no peer dependencies");
+    assert.ok(pkg.devDependencies["@modelcontextprotocol/sdk"], "the SDK stays as a devDependency: the test client uses it");
   });
 
-  test("nothing reachable from the CLI imports the SDK or zod", () => {
-    // This is what makes --omit=optional a real answer rather than a
-    // suggestion: the CLI has to still work with that subtree absent.
+  test("nothing shipped in dist imports the SDK or zod", () => {
+    // The devDependency must never leak into the published code. Walking
+    // from both entry points covers everything `files` actually ships.
     const seen = new Set<string>();
     const offenders: string[] = [];
 
@@ -80,8 +97,126 @@ describe("#1 transitive advisory: the fix must not be a no-op", () => {
     };
 
     walk(join(REPO_ROOT, "src/cli.ts"));
-    assert.deepEqual(offenders, [], "the CLI graph must stay free of optional dependencies");
+    walk(join(REPO_ROOT, "src/server.ts"));
+    assert.deepEqual(offenders, [], "shipped code must not import a devDependency");
     assert.ok(seen.size > 5, `expected to walk the real graph, only saw ${seen.size} files`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #7 — a `constructor`-keyed payload escaped as a protocol-level error
+// ---------------------------------------------------------------------------
+
+describe("#7 prototype-shaped argument keys must be ordinary bad input", () => {
+  // One payload out of 77 in the fuzzing run broke the pattern: every other
+  // malformed input produced a clean isError tool result, but
+  // { constructor: { prototype: {} } } produced a raw JSON-RPC
+  // "-32603: expected record, received object". Not exploitable, but an
+  // inconsistent error path is exactly the kind of thing a model handles
+  // badly — a tool result it can read beats a protocol failure it cannot.
+  const PAYLOADS: Array<Record<string, unknown>> = [
+    { name: "react", constructor: { prototype: { polluted: true } } },
+    { name: "react", __proto__: { polluted: true } },
+    { name: "react", prototype: { polluted: true } },
+    { name: "react", toString: "not-a-function" },
+    { name: "react", hasOwnProperty: 1 },
+    { name: "react", valueOf: null },
+    { constructor: { prototype: {} } },
+    { __proto__: { name: "react" } },
+  ];
+
+  test("every prototype-shaped payload gets a tool-level answer, not -32603", async () => {
+    const mcp = await openMcp({ dbPath: storePath });
+    try {
+      for (const args of PAYLOADS) {
+        let protocolError: string | null = null;
+        const r = await mcp.call("check_package", args).catch((e) => {
+          protocolError = e instanceof Error ? e.message : String(e);
+          return { isError: true, text: "", json: null as any };
+        });
+        assert.equal(protocolError, null, `payload ${JSON.stringify(args)} escaped as a protocol error: ${protocolError}`);
+        assert.ok(r.text.length > 0, "a tool result must carry readable text");
+        assert.doesNotMatch(r.text, /-32603|internal error/i, `payload ${JSON.stringify(args)} leaked an internal error`);
+      }
+    } finally {
+      await mcp.close();
+    }
+  });
+
+  test("nothing in the payloads reaches Object.prototype", () => {
+    assert.equal(({} as any).polluted, undefined, "Object.prototype was polluted by the test payloads");
+  });
+
+  test("a well-formed call still works after the sweep", async () => {
+    const mcp = await openMcp({ dbPath: storePath });
+    try {
+      const r = await mcp.call("check_package", { name: "zod" });
+      assert.equal(r.json?.name, "zod");
+    } finally {
+      await mcp.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #8 — a failed downloads lookup was silently read as zero
+// ---------------------------------------------------------------------------
+
+describe("#8 unknown adoption must never be treated as zero", () => {
+  test("an unverified subject download count disables the ratio test entirely", async () => {
+    // The vector: `target >= subject * 100` is trivially true when subject is
+    // a spurious 0, so one rate-limited request could brand any package with
+    // a popular near-neighbour a typosquat.
+    const store = new Map<string, number>([["react", 150_000_000]]);
+    const verified = await checkTyposquat("reactt", 0, store, true);
+    assert.equal(verified.suspicious, true, "premise: a genuine zero against react is a squat");
+
+    const unverified = await checkTyposquat("reactt", 0, store, false);
+    assert.equal(unverified.suspicious, false, "an unverified count must not satisfy the ratio");
+  });
+
+  test("a failed downloads fetch reports null rather than zero", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (() => Promise.reject(new TypeError("fetch failed"))) as unknown as typeof fetch;
+    try {
+      assert.equal(await fetchWeeklyDownloads("react"), null);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test("a 404 from the downloads endpoint is still an honest zero", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (() => Promise.resolve(new Response("{}", { status: 404 }))) as unknown as typeof fetch;
+    try {
+      assert.equal(await fetchWeeklyDownloads("some-real-but-unused-package"), 0);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test("a rate-limited response is unknown, not zero", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (() => Promise.resolve(new Response("rate limited", { status: 429 }))) as unknown as typeof fetch;
+    try {
+      assert.equal(await fetchWeeklyDownloads("react"), null);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test("a package with an unverified zero count is not recommendable", () => {
+    assert.equal(isRecommendable(row({ weekly_downloads: 0, downloads_check_failed: true })), false);
+    const failures = checkRecommendable(row({ weekly_downloads: 0, downloads_check_failed: true })).failures;
+    assert.ok(
+      failures.some((f) => /could not be verified/i.test(f)),
+      `expected an explicit unverified-adoption reason, got: ${JSON.stringify(failures)}`
+    );
+  });
+
+  test("a carried-over count from a previous good fetch still counts", () => {
+    // Keeping the last real figure is the point of not writing a zero.
+    assert.equal(isRecommendable(row({ weekly_downloads: 5_000_000, downloads_check_failed: true })), true);
   });
 });
 
@@ -432,7 +567,7 @@ describe("#5 invalid limit must be an error, never an empty result", () => {
 
   for (const bad of ["banana", "0", "-5", "2.7", "1e9", "999", ""]) {
     test(`CLI --limit ${JSON.stringify(bad)} exits non-zero with a message about the flag`, async () => {
-      const res = await runCli(["recommend", "csv parser", "--limit", bad, "--json"]);
+      const res = await runCli(["recommend", "csv parser", "--limit", bad, "--json"], { dbPath: storePath });
       assert.notEqual(res.code, 0, `--limit ${bad} was accepted; stdout was:\n${res.stdout}`);
       assert.match(res.stderr, /limit/i);
       assert.ok(
@@ -443,7 +578,7 @@ describe("#5 invalid limit must be an error, never an empty result", () => {
   }
 
   test("MCP rejects an out-of-range limit rather than returning nothing", async () => {
-    const mcp = await openMcp();
+    const mcp = await openMcp({ dbPath: storePath });
     try {
       for (const bad of [0, -5, 2.7, 1e9]) {
         const res = await mcp.call("recommend_package", { need: "csv parser", limit: bad });
@@ -513,7 +648,7 @@ describe("#6 a lookup miss must say which kind of miss it was", () => {
   test("the MCP tool description tells the model how to read reasonCode", async () => {
     // The distinction is worthless if the model reading the response has not
     // been told that only one of the four codes is an accusation.
-    const mcp = await openMcp();
+    const mcp = await openMcp({ dbPath: storePath });
     try {
       const { tools } = await mcp.listTools();
       const d = tools.find((t: any) => t.name === "check_package").description as string;

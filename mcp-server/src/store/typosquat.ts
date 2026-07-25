@@ -188,8 +188,19 @@ async function targetDownloads(target: string, storeDownloads: Map<string, numbe
 export async function checkTyposquat(
   name: string,
   weeklyDownloads: number,
-  storeDownloads: Map<string, number>
+  storeDownloads: Map<string, number>,
+  /**
+   * Whether `weeklyDownloads` is a real measurement. When it is not, this
+   * function refuses to answer — the whole test is a ratio against the
+   * checked package's own popularity, so an unverified figure (which used to
+   * arrive as a silent 0 from a rate-limited request) makes
+   * `target >= subject * 100` collapse to `target >= 0` and every popular
+   * neighbour becomes a "confirmed" impersonation target.
+   */
+  subjectDownloadsVerified = true
 ): Promise<TyposquatCheck> {
+  if (!subjectDownloadsVerified) return { suspicious: false };
+
   const knownSet = new Set(KNOWN_POPULAR_PACKAGES);
 
   // Never accuse a package we have explicitly vouched for. Without this, a

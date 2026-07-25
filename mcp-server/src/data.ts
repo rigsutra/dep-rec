@@ -234,7 +234,7 @@ export async function checkPackage(name: string): Promise<CheckPackageResult> {
   // list of famous packages outside the 10 categories, so this doesn't
   // depend on the checked name already being known-bad.
   const storeDownloads = listNameDownloads();
-  const typosquat = await checkTyposquat(row.name, row.weekly_downloads, storeDownloads);
+  const typosquat = await checkTyposquat(row.name, row.weekly_downloads, storeDownloads, !row.downloads_check_failed);
 
   // check_package answers for any package, including ones this tool would
   // never put forward itself. Saying so explicitly is the point: "here is

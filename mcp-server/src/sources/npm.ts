@@ -4,7 +4,96 @@
 
 const REGISTRY = "https://registry.npmjs.org";
 const DOWNLOADS = "https://api.npmjs.org/downloads/point/last-week";
-const UA = "dep-rec-mcp-server/0.1 (live package check)";
+const UA = "dep-rec-mcp-server/0.2 (live package check)";
+
+// Measured, not guessed: a 269-lookup burst at concurrency 6 against
+// api.npmjs.org left 20% of download counts unresolved. Every one of those
+// disables typosquat detection for that package (correctly — an unverified
+// count cannot anchor a ratio) and costs it its adoption score. A one-in-five
+// silent degradation is not an acceptable resting state for a security tool,
+// and the cause is ordinary throttling that a retry answers.
+//
+// stage1-collector already learned this lesson during corpus building; the
+// live path never inherited it.
+const MAX_ATTEMPTS = 4;
+const BASE_BACKOFF_MS = 400;
+
+// Retrying alone did not fix it: the failures came in one contiguous block
+// spanning unrelated packages, which is the signature of a sustained
+// throttling window rather than scattered transient errors. Backing off after
+// the fact loses to a limiter that has already decided to say no, so the
+// requests are spaced out before they are made. Single lookups are unaffected
+// (one request, no queue); only bulk runs slow down, which is the correct
+// trade when the alternative is one in five packages silently losing its
+// typosquat check.
+// A fixed spacing cannot be right for both cases: one interactive lookup
+// should not be delayed at all, and a bulk sweep needs to be slowed a lot.
+// (A single check_package also fans out — the typosquat step looks up each
+// candidate impersonation target — so the request count is a multiple of the
+// package count, which is why a plausible-looking fixed rate still got
+// throttled.) So the spacing adapts: it widens on every 429 and decays back
+// while requests are succeeding.
+const BASE_SPACING_MS = Number(process.env.DEP_REC_DOWNLOADS_SPACING_MS ?? 60);
+const MAX_SPACING_MS = 3_000;
+let currentSpacing = Number.isFinite(BASE_SPACING_MS) ? Math.max(0, BASE_SPACING_MS) : 60;
+let pacingChain: Promise<void> = Promise.resolve();
+let lastRequestAt = 0;
+
+function noteThrottled(): void {
+  currentSpacing = Math.min(MAX_SPACING_MS, Math.max(60, currentSpacing * 2));
+}
+
+function noteSucceeded(): void {
+  const floor = Number.isFinite(BASE_SPACING_MS) ? Math.max(0, BASE_SPACING_MS) : 60;
+  currentSpacing = Math.max(floor, currentSpacing * 0.9);
+}
+
+/** Exposed for the stress harness, which reports how hard it had to back off. */
+export function downloadsPacingMs(): number {
+  return Math.round(currentSpacing);
+}
+
+function paced<T>(fn: () => Promise<T>): Promise<T> {
+  const slot = pacingChain.then(async () => {
+    const wait = lastRequestAt + currentSpacing - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastRequestAt = Date.now();
+  });
+  // Only the *start* of each request is serialised; the requests themselves
+  // still overlap, so throughput is bounded by spacing, not by latency.
+  pacingChain = slot.catch(() => {});
+  return slot.then(fn);
+}
+
+function retryable(status: number): boolean {
+  return status === 429 || status === 408 || status >= 500;
+}
+
+async function fetchWithRetry(url: string, init: RequestInit, onThrottle?: () => void): Promise<Response | null> {
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      // Exponential backoff with jitter, so a burst of concurrent callers
+      // that all get throttled together do not all retry together.
+      const wait = BASE_BACKOFF_MS * 2 ** (attempt - 1) * (0.5 + Math.random());
+      await new Promise((r) => setTimeout(r, wait));
+    }
+    let res: Response;
+    try {
+      res = await fetch(url, init);
+    } catch {
+      continue; // transient network failure: retry
+    }
+    if (!retryable(res.status)) return res;
+    if (res.status === 429) onThrottle?.();
+    lastStatus = res.status;
+    // A Retry-After longer than the whole budget means backing off is
+    // pointless — report the throttle rather than sleeping on it.
+    const retryAfter = Number(res.headers.get("retry-after"));
+    if (Number.isFinite(retryAfter) && retryAfter > 10) return res;
+  }
+  return lastStatus > 0 ? new Response(null, { status: lastStatus }) : null;
+}
 
 export interface VersionEntry {
   version: string;
@@ -115,17 +204,15 @@ export async function fetchPackageDoc(name: string): Promise<RegistryDoc | Regis
     };
   }
 
-  let res: Response;
-  try {
-    res = await fetch(registryUrl(name), {
-      headers: { "User-Agent": UA, Accept: "application/json" },
-    });
-  } catch (err) {
+  const res = await fetchWithRetry(registryUrl(name), {
+    headers: { "User-Agent": UA, Accept: "application/json" },
+  });
+  if (res === null) {
     return {
       found: false,
       name,
       code: "registry-error",
-      reason: `could not reach the npm registry (${err instanceof Error ? err.message : String(err)})`,
+      reason: `could not reach the npm registry after ${MAX_ATTEMPTS} attempts`,
     };
   }
 
@@ -194,11 +281,37 @@ export async function fetchPackageDoc(name: string): Promise<RegistryDoc | Regis
   };
 }
 
-export async function fetchWeeklyDownloads(name: string): Promise<number> {
+/**
+ * Weekly download count, or `null` when it could not be determined.
+ *
+ * The null matters. This used to return 0 on any failure, which made a
+ * transient rate-limit indistinguishable from a genuinely unused package —
+ * the same fail-open mistake the OSV check already had fixed. It became
+ * materially dangerous once typosquat detection went ratio-based: a spurious
+ * 0 for the *checked* package turns `target >= subject * 100` into
+ * `target >= 0`, which every popular neighbour satisfies, so one rate-limited
+ * request could brand an ordinary package a typosquat. Callers must decide
+ * what an unknown means for them; none of them may treat it as zero.
+ */
+export async function fetchWeeklyDownloads(name: string): Promise<number | null> {
   // the single-package downloads endpoint accepts scoped names (@scope/name)
   // directly in the path, unlike the bulk comma-separated endpoint
-  const res = await fetch(`${DOWNLOADS}/${name}`, { headers: { "User-Agent": UA } });
-  if (!res.ok) return 0;
-  const data = (await res.json()) as any;
-  return data?.downloads ?? 0;
+  const res = await paced(() => fetchWithRetry(`${DOWNLOADS}/${name}`, { headers: { "User-Agent": UA } }, noteThrottled));
+  if (res === null) return null;
+  if (res.status === 429) {
+    noteThrottled();
+    return null;
+  }
+  if (res.ok) noteSucceeded();
+  // 404 from this endpoint is the one honest zero: the package exists but has
+  // no downloads recorded for the period. Every other non-2xx is a failure to
+  // answer, not an answer of zero.
+  if (res.status === 404) return 0;
+  if (!res.ok) return null;
+  try {
+    const data = (await res.json()) as any;
+    return typeof data?.downloads === "number" && Number.isFinite(data.downloads) ? data.downloads : null;
+  } catch {
+    return null;
+  }
 }
