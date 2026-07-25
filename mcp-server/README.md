@@ -1,86 +1,78 @@
-# dep-rec
+<h1 align="center">dep-rec</h1>
 
-**Stop AI assistants from recommending npm packages that don't exist, aren't maintained, or are one keystroke away from something malicious.**
+<p align="center">
+  <strong>Verify npm packages before an AI assistant talks you into installing one.</strong>
+</p>
 
-A dependency checker built for the way software is written now: an assistant
-suggests a package, and something has to verify it against reality before it
-lands in a `package.json`. `dep-rec` answers from live npm registry and OSV
-data with a deterministic score — never from a model's memory of what was
-popular when it was trained.
+<p align="center">
+  <a href="https://www.npmjs.com/package/dep-rec"><img src="https://img.shields.io/npm/v/dep-rec.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/dep-rec"><img src="https://img.shields.io/npm/dm/dep-rec.svg" alt="downloads"></a>
+  <img src="https://img.shields.io/badge/dependencies-0-brightgreen.svg" alt="zero dependencies">
+  <a href="https://nodejs.org"><img src="https://img.shields.io/node/v/dep-rec.svg" alt="node version"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/dep-rec.svg" alt="MIT license"></a>
+</p>
 
-Works as an **MCP server** an assistant calls mid-conversation, and as a
-plain **CLI** for humans, scripts and CI.
+An assistant suggests a package; something has to check it against reality
+before it lands in your `package.json`. `dep-rec` answers from the live npm
+registry and OSV with a deterministic score — never from a model's memory of
+what was popular when it was trained.
+
+Runs as an **MCP server** an assistant calls mid-conversation, and as a plain
+**CLI** for humans, scripts and CI.
+
+## Features
+
+- **Catches hallucinated packages** — a real registry 404, reported as such
+- **Catches typosquats that resolve** — `csvparser` vs `csv-parser`, the
+  attack that a 404 check misses entirely
+- **Version-scoped CVE checks** — OSV queried against the *current* version,
+  so long-patched advisories aren't reported as live ones
+- **Flags install scripts** — `preinstall`/`install`/`postinstall`, the
+  event-stream attack vector
+- **Refuses to recommend** deprecated, barely-adopted, brand-new or
+  unmaintained packages, and says which bar was missed
+- **Says "unknown" instead of "clean"** when a lookup fails
+- **Covers all of npm** — ten curated categories, everything else discovered
+  by live search
+- **Zero dependencies**
+
+## Install
 
 ```bash
 npm install --save-dev dep-rec
 ```
 
-Zero dependencies. Node 22+.
+Node 22+.
 
----
+## Quick start
 
-## The problem
-
-An LLM's package knowledge is a snapshot of its training data, and it is
-confidently wrong in four specific ways:
-
-| Failure | What it looks like |
-|---|---|
-| **Hallucinated names** | Confidently suggests a plausible-sounding helper package that was never published. If an attacker notices the same name being suggested repeatedly and registers it, the hallucination becomes a supply-chain attack — *slopsquatting*. |
-| **Stale recommendations** | Suggests `request`, `tslint`, `node-sass` or `istanbul`. Every one of them was the right answer once; every one is now marked deprecated on npm. |
-| **Near-miss names** | `csvparser` instead of `csv-parser`. It resolves, it installs, and it has 86 weekly downloads against the real package's 3.3 million. |
-| **Confident silence on risk** | Suggests a package with an active CVE, a `postinstall` script, or no release since 2021 — and says nothing, because it has no way to know. |
-
-Asking the model to be more careful does not fix any of these. The
-information is not in the weights. `dep-rec` puts it in the context window
-instead.
-
-## Why "AI-first"
-
-This is not a security scanner with an MCP wrapper bolted on. The design
-assumes the caller is a model, and that changes almost every decision:
-
-**It refuses rather than guesses.** A tool that returns a plausible answer to
-a question it cannot answer is worse than useless to a model, because the
-model cannot tell the difference. Ask `recommend "pdf"` and an earlier
-version returned `vitest`, `jose`, `hono`, `xstate`, `zod` — ranked, scored,
-explained, and completely wrong. Now an uncovered need is either answered
-from a live search or not answered at all.
-
-**Every miss says *why* it missed.** A lookup failure returns a
-`reasonCode`, and only one of them is an accusation:
-
-```
-not-found       real 404 — treat as possibly hallucinated or typosquatted
-invalid-name    malformed; the registry was never asked
-registry-error  npm was unreachable; this says nothing about the package
-no-manifest     resolves, but nothing installable
+```bash
+npx dep-rec check csvparser
 ```
 
-Collapsing these is how a tool tells a model that every real package is fake
-during an npm outage.
+```
+🚨 csvparser  score 46.6  [cache]
+  TYPOSQUAT WARNING: Name is one character away from "csv-parser" (3,288,172 weekly downloads vs. this package's 86) — classic typosquat pattern. Verify this is really the package you meant before installing.
+  license: unknown  maintainers: 1  deps: 0  weekly downloads: 86
+  - no known vulnerabilities affecting the current version
+  - no recent release relative to category peers
+  - single maintainer — bus-factor risk
+  NOT RECOMMENDATION-GRADE — this tool would not put this package forward:
+    - only 86 weekly downloads (recommendation floor is 10,000)
+    - no release in 1503 days (limit is 1000 at this adoption level)
+```
 
-**Scores are deterministic; the model only narrates.** The tool computes,
-the model explains. Every result carries a `reasons` array, and both tool
-descriptions instruct the model to cite those reasons and never invent a
-score of its own.
+```bash
+npx dep-rec check left-pad              # is this safe to install?
+npx dep-rec recommend "jwt library"     # what should I use?
+npx dep-rec recommend "pdf" --limit 3   # works outside the curated set too
+npx dep-rec categories
+```
 
-**Unverified is never reported as clean.** If the OSV lookup fails, the
-response says the vulnerability status is *unknown* — not "no known
-vulnerabilities". Same for adoption data. Failing closed matters more when
-the reader is a model inclined to summarise optimistically.
+Scores move with live data, so your numbers won't match the sample exactly —
+and `[cache]` reads `[live-fetch]` the first time a package is seen.
 
-**Output is bounded.** When the consumer is a context window, response size
-is a correctness property, not a performance one — so per-row output is
-capped. A single corrupt row was enough to produce a 216 KB response before
-that cap existed.
-
-**The tool descriptions are part of the product.** They are long on purpose —
-they tell the model how to read `reasonCode`, when a resolvable package is
-still a typosquat, and why a `discoveredVia: "npm-search"` result is a
-shortlist rather than a verdict. They are covered by tests.
-
-## Use it with an assistant (MCP)
+## Use with an AI assistant
 
 Add to your assistant's MCP config — Claude Code's `.mcp.json`, Cursor's
 `mcp.json`, or equivalent:
@@ -97,21 +89,9 @@ Add to your assistant's MCP config — Claude Code's `.mcp.json`, Cursor's
 ```
 
 The `-p dep-rec` matters: the binary is `dep-rec-mcp-server` but the package
-is `dep-rec`, and a bare `npx -y dep-rec-mcp-server` would go looking for a
-package by that name and get a 404.
-
-Already installed in the project? Point at it directly instead:
-
-```json
-{
-  "mcpServers": {
-    "dep-rec": {
-      "command": "node",
-      "args": ["node_modules/dep-rec/dist/server.js"]
-    }
-  }
-}
-```
+is `dep-rec`, so a bare `npx -y dep-rec-mcp-server` gets a 404. Already
+installed in the project? Use `"command": "node"` with
+`["node_modules/dep-rec/dist/server.js"]` instead.
 
 Then the conversation goes differently:
 
@@ -119,19 +99,30 @@ Then the conversation goes differently:
 >
 > **Assistant** *(calls `recommend_package`)*: `csv-parse` — score 91.4, no
 > known vulnerabilities affecting the current version, ships ESM and
-> TypeScript types, 40 alternatives were excluded for failing the
+> TypeScript types. 40 alternatives were excluded for failing the
 > recommendation bar.
 >
 > **You:** What about `csvparser`?
 >
 > **Assistant** *(calls `check_package`)*: Don't. It resolves, but it has 86
 > weekly downloads and its name is one character from `csv-parser`
-> (3.3M/week) — that is the typosquat pattern.
+> (3.3M/week) — that's the typosquat pattern.
 
-### What the model actually receives
+### Tools
 
-Every field exists to stop a specific misreading. This is real output from
-`check_package` on `csvparser`, unedited:
+| Tool | Answers | Inputs |
+|---|---|---|
+| `check_package` | *"Is this specific package safe to install?"* Any package on npm. | `name` |
+| `recommend_package` | *"What should I use for X?"* | `need`, `runtime?`, `license?`, `limit?` |
+| `list_categories` | Curated categories and how many packages clear the bar | — |
+
+`check_package` is the stronger half and the one to reach for by default:
+verifying a name an assistant already produced is a well-defined question.
+"What should I use for X" is not.
+
+### What the model receives
+
+Real output from `check_package` on `csvparser`, unedited:
 
 ```json
 {
@@ -168,86 +159,64 @@ Every field exists to stop a specific misreading. This is real output from
 }
 ```
 
-Note what is *not* there: no bare boolean verdict for the model to
-misinterpret. `score` is meaningless on its own, so `reasons` always
-accompanies it. `recommendable: false` is never left unexplained —
-`notRecommendableBecause` says which bar was missed and by how much. And
-`deprecated: false` sits right next to a `recommendable: false`, because
-"not formally deprecated" and "safe to recommend" are different claims and
-the tool must not let a model conflate them.
+Note what's absent: no bare boolean verdict to misread. `score` never appears
+without `reasons`; `recommendable: false` never without
+`notRecommendableBecause`. And `deprecated: false` sits right next to
+`recommendable: false`, because those are different claims and the response
+shape shouldn't let a model merge them.
 
-### The three tools
+When a lookup fails it returns a `reasonCode`, and only one of them is an
+accusation:
 
-| Tool | What it answers |
+| code | meaning |
 |---|---|
-| **`check_package`** | *"Is this specific package safe to install?"* Any package on npm. Returns score, reasons, typosquat warning, version guidance, and whether it is recommendation-grade at all. |
-| **`recommend_package`** | *"What should I use for X?"* Ranked candidates for a described need. |
-| **`list_categories`** | The curated categories and how many packages clear the bar in each. |
+| `not-found` | real 404 — treat as possibly hallucinated or typosquatted |
+| `invalid-name` | malformed; the registry was never asked |
+| `registry-error` | npm was unreachable; says nothing about the package |
+| `no-manifest` | resolves, but nothing installable |
 
-`check_package` is the stronger half, and the one to reach for by default:
-verifying a name an assistant already produced is a well-defined question.
-"What should I use for X" is not.
-
-## Use it from the terminal
-
-```bash
-npx dep-rec check left-pad
-npx dep-rec check csvparser
-npx dep-rec recommend "jwt library"
-npx dep-rec recommend "csv parser" --limit 3
-npx dep-rec categories
-```
+## CLI reference
 
 ```
-$ npx dep-rec check csvparser
-🚨 csvparser  score 46.6  [cache]
-  TYPOSQUAT WARNING: Name is one character away from "csv-parser" (3,288,172 weekly downloads vs. this package's 86) — classic typosquat pattern. Verify this is really the package you meant before installing.
-  license: unknown  maintainers: 1  deps: 0  weekly downloads: 86
-  - no known vulnerabilities affecting the current version
-  - no recent release relative to category peers
-  - single maintainer — bus-factor risk
-  - no ESM or bundled TS types detected
-  - zero direct dependencies
-  NOT RECOMMENDATION-GRADE — this tool would not put this package forward:
-    - only 86 weekly downloads (recommendation floor is 10,000)
-    - no release in 1503 days (limit is 1000 at this adoption level)
+dep-rec check <package-name> [--json] [--db <path>]
+dep-rec recommend "<need>" [--runtime node|edge] [--license MIT] [--limit 1-20] [--json] [--db <path>]
+dep-rec categories [--json] [--db <path>]
 ```
 
-Add `--json` to any command for machine-readable output. `--db <path>` uses a
-different store file. Full flags: `dep-rec --help`.
+| Flag | Effect |
+|---|---|
+| `--json` | Machine-readable output instead of the human-readable default |
+| `--limit <1-20>` | How many candidates to return (default 5) |
+| `--runtime node\|edge` | Target runtime; `edge` attaches an explicit not-sandbox-tested caveat |
+| `--license <id>` | Exact license match, e.g. `MIT` |
+| `--db <path>` | Use a different store file (also `DEP_REC_DB_PATH`) |
 
-Scores move with the underlying data, so your numbers will not match the
-sample above exactly — and `[cache]` reads `[live-fetch]` the first time a
-package is seen.
+`check` exits non-zero when a package can't be resolved, so a hallucinated
+name in a PR fails the build.
 
-Useful in CI, too — `check` exits non-zero when a package cannot be resolved,
-so a hallucinated name in a PR fails the build.
-
-## What it actually checks
+## How it scores
 
 Five weighted signals, all from live data:
 
-- **Security (25%)** — OSV vulnerabilities scoped to the *current version*.
-  Querying by name alone reports long-patched CVEs as current; this does not.
-- **Maintenance (25%)** — release recency, cadence, maintainer count.
-- **Compatibility (20%)** — ESM and bundled TypeScript types.
-- **Community (20%)** — downloads relative to real category competitors.
-- **Supply chain (10%)** — dependency count, and `preinstall`/`install`/
-  `postinstall` scripts, weighted heavily. That is the
-  event-stream/ua-parser-js vector: arbitrary code execution at install
-  time, before anyone reviews anything.
+| Signal | Weight | What it measures |
+|---|---|---|
+| Security | 25% | OSV vulnerabilities scoped to the current version |
+| Maintenance | 25% | Release recency, cadence, maintainer count |
+| Compatibility | 20% | ESM and bundled TypeScript types |
+| Community | 20% | Downloads relative to real category competitors |
+| Supply chain | 10% | Dependency count, and install scripts weighted heavily |
 
-Plus **typosquat detection** on resolvable names (edit-distance-1 against
-popular packages, filtered to typo-shaped edits so `next`/`nuxt` are not
+Plus **typosquat detection** on names that resolve (edit-distance-1 against
+popular packages, restricted to typo-shaped edits so `next` and `nuxt` aren't
 accused of each other), and **version guidance** — prefer the newest release
 past a 30-day observation window, unless a fresher one demonstrably fixes a
 vulnerability, verified by version-scoped OSV lookups on both.
 
 **A package can be answered for and still not be recommendable.** Deprecated,
 under 10k weekly downloads, under 30 days old, or no release in ~1000 days
-disqualifies it from being *put forward* — while `check_package` still
-answers for it in full. Refusing to answer for obscure packages would defeat
-the point; recommending them would too.
+disqualifies it from being *put forward*, while `check_package` still answers
+for it in full. Refusing to answer for obscure packages would defeat the
+point; recommending them would too.
 
 ## Coverage
 
@@ -256,8 +225,8 @@ logging, orm-database, state-management, testing, validation, web-framework —
 are ranked by percentile against a real competitor set.
 
 Anything else is discovered live: `dep-rec` searches npm, fetches each
-candidate, runs the identical checks, and returns what clears the bar,
-marked `discoveredVia: "npm-search"`.
+candidate, runs the identical checks, and returns what clears the bar, marked
+`discoveredVia: "npm-search"`.
 
 ```
 $ dep-rec recommend "pdf"
@@ -265,31 +234,41 @@ $ dep-rec recommend "pdf"
 3. pdf-merger-js      80.8     4. ng2-pdf-viewer       69.6
 ```
 
-Discovered results keep **npm's relevance ordering**, not a re-rank by score.
-Sorting by health promoted internal sub-packages nobody installs above the
-obvious answer. Relevance is npm's job; screening for security, maintenance
-and adoption is this tool's, and doing only the second — while saying so — is
-better than doing both badly. First call for a new domain is slow; every
-candidate is stored, so the next one is served from disk.
+Discovered results keep **npm's relevance ordering** rather than being
+re-ranked by score — sorting by health promoted internal sub-packages nobody
+installs above the obvious answer. Relevance is npm's job; screening for
+security, maintenance and adoption is this tool's. The first call for a new
+domain is slow; every candidate is stored, so the next one is served from
+disk.
 
-## Zero dependencies
+## Why "AI-first"
 
-```
-dep-rec@0.3.0
-└── (end)
-```
+Not a security scanner with an MCP wrapper bolted on. The design assumes the
+caller is a model, and that changes most decisions:
 
-`npm install dep-rec` adds one package and `npm audit` reports nothing. That
-took removing the MCP SDK and speaking JSON-RPC over stdio directly, because
-the SDK pulled in an advisory no consumer could patch — `overrides` do not
-apply from inside a dependency. A tool about dependency hygiene should not
-ship a default install with a known advisory and an opt-out flag in its
-README. [The full story](docs/reviews-and-hardening.md#second-review--v012--v020).
+- **It refuses rather than guesses.** A plausible answer to a question the
+  tool can't answer is worse than useless, because the model can't tell the
+  difference. `recommend "pdf"` once returned `vitest`, `jose`, `hono`,
+  `xstate`, `zod` — ranked, scored, explained, completely wrong. Now an
+  uncovered need is either answered from live search or not answered.
+- **Every miss says why it missed.** Collapsing the four `reasonCode` values
+  into one is how a tool tells a model that every real package is fake during
+  an npm outage.
+- **Scores are deterministic; the model only narrates.** Both tool
+  descriptions instruct it to cite the returned `reasons` and never invent a
+  score.
+- **Unverified is never reported as clean.** A failed OSV lookup returns
+  *unknown*, not "no known vulnerabilities". Same for adoption data.
+- **Output is bounded.** When the consumer is a context window, response size
+  is a correctness property. One corrupt row produced a 216 KB response
+  before that cap existed.
+- **The tool descriptions are part of the product** — long on purpose, and
+  covered by tests.
 
-## Honest limits
+## Limitations
 
 Documented rather than hidden, because a tool that overstates itself is the
-problem it is trying to solve:
+problem it's trying to solve:
 
 - **`recommend_package` is weaker than `check_package`.** Generic queries can
   surface vendor-internal libraries that score well but no human would pick
@@ -297,10 +276,10 @@ problem it is trying to solve:
   semantic search.
 - **Abandoned-but-popular packages slip through.** 6 of 24 tested still clear
   the bar, including `colors` — sabotaged by its own maintainer in 2022 —
-  because none are *formally* deprecated and all still have large download
-  counts. Catching that needs a signal not collected here.
+  because none are formally deprecated and all still have large download
+  counts.
 - **24-hour cache window.** A CVE disclosed in the last day can be masked on
-  a cached lookup. `servedFrom` discloses the provenance.
+  a cached lookup; `servedFrom` discloses the provenance.
 - **No GitHub signals** (stars, bus factor, archived status) and **no
   transitive dependency analysis** — direct dependency count only.
 - **Edge Runtime fit is not sandbox-tested.** `runtime: "edge"` returns an
@@ -309,7 +288,7 @@ problem it is trying to solve:
 - **`node:sqlite` is an experimental Node API**, so this needs Node 22+ and
   the API may change.
 
-## More
+## Documentation
 
 - [Architecture](docs/architecture.md) — the persistent store, scoring
   internals, the eligibility gate
@@ -317,8 +296,9 @@ problem it is trying to solve:
   packing
 - [Reviews and hardening](docs/reviews-and-hardening.md) — every external
   review finding, the stress harness, and the bugs both found
-- [Test suite](tests/README.md) — 428 adversarial scenarios across seven
-  suites
+- [Tests](tests/README.md) — 428 adversarial scenarios across seven suites
 
-MIT licensed. Issues and PRs:
+## License
+
+MIT © Ashish Singh ·
 [github.com/AshishPodtech/package_rec](https://github.com/AshishPodtech/package_rec)

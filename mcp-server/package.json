@@ -6,6 +6,9 @@
   "license": "MIT",
   "author": "Ashish Singh",
   "description": "Recommend the best-fit npm package for a described need, or check any arbitrary package's health/security live — as a CLI or an MCP server for AI assistants.",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "repository": {
     "type": "git",
     "url": "git+ssh://git@github.com/AshishPodtech/package_rec.git",
