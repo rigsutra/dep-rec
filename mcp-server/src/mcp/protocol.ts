@@ -179,6 +179,21 @@ export function createServer(info: { name: string; version: string }, tools: Too
     listen(): void {
       process.stdin.setEncoding("utf8");
       let buffer = "";
+      // Requests already accepted but not yet answered. Exiting while any of
+      // these are outstanding silently drops their responses — which is
+      // exactly what happened the first time this was driven by piping three
+      // requests in: the first two answered from memory, the third needed a
+      // network call, stdin hit EOF, and the process exited before it could
+      // reply. A long-lived client keeps stdin open so it never showed up
+      // there, but "close stdin, read the answers" is a legitimate way to
+      // drive a stdio server and it must not lose work.
+      const inFlight = new Set<Promise<void>>();
+
+      function track(work: Promise<void>): void {
+        inFlight.add(work);
+        void work.finally(() => inFlight.delete(work));
+      }
+
       process.stdin.on("data", (chunk: string) => {
         buffer += chunk;
         let newline: number;
@@ -188,10 +203,22 @@ export function createServer(info: { name: string; version: string }, tools: Too
           // Requests are handled concurrently and matched by id, which is
           // what JSON-RPC specifies and what an agent firing parallel tool
           // calls depends on. Responses may therefore come back out of order.
-          if (line.length > 0) void handleMessage(line);
+          if (line.length > 0) track(handleMessage(line));
         }
       });
-      process.stdin.on("end", () => process.exit(0));
+
+      process.stdin.on("end", () => {
+        void (async () => {
+          // A trailing line with no newline is still a request.
+          const remainder = buffer.trim();
+          buffer = "";
+          if (remainder.length > 0) track(handleMessage(remainder));
+          // Handlers can queue further work, so drain until nothing is left
+          // rather than awaiting a single snapshot of the set.
+          while (inFlight.size > 0) await Promise.allSettled([...inFlight]);
+          process.exit(0);
+        })();
+      });
     },
   };
 }

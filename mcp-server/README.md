@@ -833,7 +833,7 @@ npm run test:gaps    # what the spec claimed but was never built
 npm run test:review  # regressions for every externally-reported finding
 ```
 
-426 adversarial scenarios across >1000 packages, using `node:test` only (no
+428 adversarial scenarios across >1000 packages, using `node:test` only (no
 framework dependency). Every suite runs against a temp copy of the store, so
 tests can never corrupt the shipped `data/store.db`.
 

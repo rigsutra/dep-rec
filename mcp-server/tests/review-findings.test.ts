@@ -9,9 +9,9 @@ import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { spawn } from "node:child_process";
-import { mkdtempSync, copyFileSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, copyFileSync, rmSync, readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { REPO_ROOT, runCli, openMcp, cleanEnv, row } from "./helpers.js";
 import { PACKAGES_COLUMNS } from "../src/store/schema.js";
 import { checkTyposquat } from "../src/store/typosquat.js";
@@ -101,6 +101,37 @@ describe("#1 transitive advisory: the fix must not be a no-op", () => {
     assert.deepEqual(offenders, [], "shipped code must not import a devDependency");
     assert.ok(seen.size > 5, `expected to walk the real graph, only saw ${seen.size} files`);
   });
+
+  test("no file that imports a devDependency is included in the tarball", () => {
+    // Walking from the entry points is not enough. `src/test-client.ts` is
+    // reachable from neither, so it passed that check while still being
+    // compiled into dist/ and published — a shipped ESM file importing
+    // @modelcontextprotocol/sdk, which consumers do not install. Dead code,
+    // but dead code with a broken import in a package about dependency
+    // hygiene. This asserts against the publish list itself.
+    const patterns: string[] = pkg.files;
+    const excluded = patterns.filter((f) => f.startsWith("!")).map((f) => f.slice(1));
+
+    const offenders: string[] = [];
+    const scan = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          scan(full);
+          continue;
+        }
+        if (!entry.name.endsWith(".ts")) continue;
+        const src = readFileSync(full, "utf8");
+        if (!/from\s+["'](zod|@modelcontextprotocol\/[^"']+)["']/.test(src)) continue;
+        // Would this file's compiled output ship?
+        const distPath = `dist/${relative(join(REPO_ROOT, "src"), full).replaceAll("\\", "/").replace(/\.ts$/, ".js")}`;
+        if (!excluded.includes(distPath)) offenders.push(distPath);
+      }
+    };
+    scan(join(REPO_ROOT, "src"));
+
+    assert.deepEqual(offenders, [], `these ship but import a devDependency: ${offenders.join(", ")}`);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -141,6 +172,38 @@ describe("#7 prototype-shaped argument keys must be ordinary bad input", () => {
     } finally {
       await mcp.close();
     }
+  });
+
+  test("responses still in flight when stdin closes are not dropped", async () => {
+    // Found by piping three requests into the built server: the first two
+    // answered from memory, the third needed a network call, stdin hit EOF
+    // and the process exited before replying. A long-lived client keeps
+    // stdin open so it never surfaced there, but closing stdin and reading
+    // the answers is a legitimate way to drive a stdio server.
+    const requests = [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "drain-test", version: "1" } } },
+      { jsonrpc: "2.0", id: 2, method: "tools/list" },
+      { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "check_package", arguments: { name: "zod" } } },
+    ];
+
+    const stdout = await new Promise<string>((resolve) => {
+      const child = spawn(process.execPath, ["--import", "tsx", join(REPO_ROOT, "src/server.ts")], {
+        cwd: REPO_ROOT,
+        env: cleanEnv({ DEP_REC_DB_PATH: storePath }),
+        stdio: ["pipe", "pipe", "ignore"],
+      });
+      let out = "";
+      child.stdout.on("data", (c) => (out += c));
+      child.on("close", () => resolve(out));
+      child.stdin.end(requests.map((r) => JSON.stringify(r)).join("\n") + "\n");
+    });
+
+    const ids = stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line).id);
+    assert.deepEqual(ids.sort(), [1, 2, 3], `expected a reply to every request, got ids ${JSON.stringify(ids)}`);
   });
 
   test("nothing in the payloads reaches Object.prototype", () => {
