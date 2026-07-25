@@ -22,53 +22,8 @@
       "releaseCadenceDays": 11.5
     },
     "security": {
-      "knownVulnerabilities": 44,
-      "vulnerabilityIds": [
-        "GHSA-35jp-ww65-95wh",
-        "GHSA-3g43-6gmg-66jw",
-        "GHSA-3p68-rc4w-qgx5",
-        "GHSA-3w6x-2g7m-8v23",
-        "GHSA-42h9-826w-cgv3",
-        "GHSA-42xw-2xvc-qx8m",
-        "GHSA-43fc-jf86-j433",
-        "GHSA-445q-vr5w-6q77",
-        "GHSA-4hjh-wcwx-xvwj",
-        "GHSA-4w2v-q235-vp99",
-        "GHSA-5c9x-8gcm-mpgx",
-        "GHSA-62hf-57xw-28j9",
-        "GHSA-654m-c8p4-x5fp",
-        "GHSA-6chq-wfr3-2hj9",
-        "GHSA-777c-7fjr-54vf",
-        "GHSA-7q8q-rj6j-mhjq",
-        "GHSA-898c-q2cr-xwhg",
-        "GHSA-8hc4-vh64-cxmj",
-        "GHSA-cph5-m8f7-6c5x",
-        "GHSA-f4gw-2p7v-4548",
-        "GHSA-fvcv-3m26-pcqx",
-        "GHSA-gcfj-64vw-6mp9",
-        "GHSA-hcpx-6fm6-wx23",
-        "GHSA-hfxv-24rg-xrqf",
-        "GHSA-j5f8-grm9-p9fc",
-        "GHSA-jqh4-m9w3-8hp9",
-        "GHSA-jr5f-v2jv-69x6",
-        "GHSA-m7pr-hjqh-92cm",
-        "GHSA-mmx7-hfxf-jppx",
-        "GHSA-mwf2-3pr3-8698",
-        "GHSA-p92q-9vqr-4j8v",
-        "GHSA-pf86-5x62-jrwf",
-        "GHSA-pjwm-pj3p-43mv",
-        "GHSA-pmv8-rq9r-6j72",
-        "GHSA-pmwg-cvhr-8vh7",
-        "GHSA-q8qp-cvcw-x6jj",
-        "GHSA-qj83-cq47-w5f8",
-        "GHSA-vf2m-468p-8v99",
-        "GHSA-w9j2-pvgh-6h63",
-        "GHSA-wf5p-g6vw-rhxx",
-        "GHSA-xhjh-pmcv-23jw",
-        "GHSA-xj6q-8x83-jv6g",
-        "GHSA-xx6v-rp6x-q39c",
-        "MAL-2026-2307"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -94,12 +49,8 @@
       "releaseCadenceDays": 12.8
     },
     "security": {
-      "knownVulnerabilities": 3,
-      "vulnerabilityIds": [
-        "GHSA-r683-j2x4-v87g",
-        "GHSA-vp56-6g26-6827",
-        "GHSA-w7rc-rwvf-8q5r"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -125,10 +76,8 @@
       "releaseCadenceDays": 8.1
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-pfrx-2q88-qq97"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -154,39 +103,8 @@
       "releaseCadenceDays": 4.7
     },
     "security": {
-      "knownVulnerabilities": 30,
-      "vulnerabilityIds": [
-        "GHSA-2mjp-6q6p-2qxm",
-        "GHSA-35p6-xmwp-9g52",
-        "GHSA-3787-6prv-h9w3",
-        "GHSA-38rv-x7px-6hhq",
-        "GHSA-3cvr-822r-rqcc",
-        "GHSA-3g92-w8c5-73pq",
-        "GHSA-4992-7rv2-5pvq",
-        "GHSA-5r9g-qh6m-jxff",
-        "GHSA-8qr4-xgw6-wmr3",
-        "GHSA-9f24-jqhm-jfcw",
-        "GHSA-9qxr-qj54-h672",
-        "GHSA-c76h-2ccp-4975",
-        "GHSA-cxrh-j4jr-qwg3",
-        "GHSA-f269-vfmq-vjvj",
-        "GHSA-f772-66g8-q5h3",
-        "GHSA-g8m3-5g58-fq7m",
-        "GHSA-g9mf-h72j-4rw9",
-        "GHSA-hm92-r4w5-c3mj",
-        "GHSA-m4v8-wqvr-p9f7",
-        "GHSA-p88m-4jfj-68fv",
-        "GHSA-pgw7-wx7w-2w33",
-        "GHSA-phc3-fgpg-7m6h",
-        "GHSA-pr7r-676h-xcf6",
-        "GHSA-q768-x9m6-m9qp",
-        "GHSA-r6ch-mqf9-qc9w",
-        "GHSA-v9p9-hfj2-hcw8",
-        "GHSA-vmh5-mc38-953g",
-        "GHSA-vrm6-8vpv-qv8q",
-        "GHSA-vxpw-j846-p89q",
-        "GHSA-wqq4-5wpv-mx2g"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -212,10 +130,8 @@
       "releaseCadenceDays": 10
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-8225-6cvr-8pqp"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -349,10 +265,8 @@
       "releaseCadenceDays": 1.9
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-x565-32qp-m3vf"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -378,10 +292,8 @@
       "releaseCadenceDays": 61.8
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-9w6v-m7wp-jwg4"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -488,11 +400,8 @@
       "releaseCadenceDays": 81.9
     },
     "security": {
-      "knownVulnerabilities": 2,
-      "vulnerabilityIds": [
-        "GHSA-vhjm-w67q-g75c",
-        "GHSA-x426-x7cc-3fpc"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -734,10 +643,8 @@
       "releaseCadenceDays": 39.9
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-v6cj-r88p-92rm"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -871,10 +778,8 @@
       "releaseCadenceDays": 14
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-jmqm-f2gx-4fjv"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -1467,14 +1372,8 @@
       "releaseCadenceDays": 2.8
     },
     "security": {
-      "knownVulnerabilities": 5,
-      "vulnerabilityIds": [
-        "GHSA-cm5g-3pgc-8rg4",
-        "GHSA-gpvr-g6gh-9mc2",
-        "GHSA-jj78-5fmv-mv28",
-        "GHSA-qw6h-vgh9-j6wx",
-        "GHSA-rv95-896h-c2vc"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -1500,14 +1399,8 @@
       "releaseCadenceDays": 12.2
     },
     "security": {
-      "knownVulnerabilities": 5,
-      "vulnerabilityIds": [
-        "GHSA-593f-38f6-jp5m",
-        "GHSA-7gcc-r8m5-44qm",
-        "GHSA-g8mr-fgfg-5qpc",
-        "GHSA-jgmv-j7ww-jx2x",
-        "GHSA-x2rg-q646-7m2v"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -1533,19 +1426,8 @@
       "releaseCadenceDays": 7.6
     },
     "security": {
-      "knownVulnerabilities": 10,
-      "vulnerabilityIds": [
-        "GHSA-247c-9743-5963",
-        "GHSA-3fjj-p79j-c9hh",
-        "GHSA-444r-cwp2-x5xf",
-        "GHSA-455w-c45v-86rg",
-        "GHSA-573f-x89g-hqp9",
-        "GHSA-jx2c-rxcm-jvmq",
-        "GHSA-mg2h-6x62-wpwc",
-        "GHSA-mq6c-fh97-4gwv",
-        "GHSA-mrq3-vjjr-p77c",
-        "GHSA-xw5p-hw6r-2j98"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -1571,15 +1453,9 @@
       "releaseCadenceDays": 3.5
     },
     "security": {
-      "knownVulnerabilities": 7,
+      "knownVulnerabilities": 1,
       "vulnerabilityIds": [
-        "GHSA-363h-vj6q-3cmj",
-        "GHSA-7hx8-2rxv-66xv",
-        "GHSA-cqjg-whmm-8gv6",
-        "GHSA-cqr7-78pj-3g7j",
-        "GHSA-j3g2-m5jj-6336",
-        "GHSA-rc8h-3fv6-pxv8",
-        "GHSA-vwrf-r5r4-7775"
+        "GHSA-7hx8-2rxv-66xv"
       ]
     }
   },
@@ -1606,10 +1482,8 @@
       "releaseCadenceDays": 5.9
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-qw3g-35hc-fcrh"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -1635,52 +1509,8 @@
       "releaseCadenceDays": 3
     },
     "security": {
-      "knownVulnerabilities": 43,
-      "vulnerabilityIds": [
-        "GHSA-2234-fmw7-43wr",
-        "GHSA-26pp-8wgv-hjvm",
-        "GHSA-2gcr-mfcq-wcc3",
-        "GHSA-3hrh-pfw6-9m5x",
-        "GHSA-3mpf-rcc7-5347",
-        "GHSA-3vhc-576x-3qv4",
-        "GHSA-458j-xx4x-4375",
-        "GHSA-5pq2-9x2x-5p6w",
-        "GHSA-69xw-7hcm-h432",
-        "GHSA-6wqw-2p9w-4vw4",
-        "GHSA-88fw-hqm2-52qc",
-        "GHSA-92vj-g62v-jqhh",
-        "GHSA-9hp6-4448-45g2",
-        "GHSA-9r54-q6cx-xmh5",
-        "GHSA-9vqf-7f2p-gf9v",
-        "GHSA-f577-qrjj-4474",
-        "GHSA-f67f-6cw9-8mq4",
-        "GHSA-f6gv-hh8j-q8vq",
-        "GHSA-gq3j-xvxp-8hrf",
-        "GHSA-hm8q-7f3q-5f36",
-        "GHSA-hvrm-45r6-mjfj",
-        "GHSA-j6c9-x7qj-28xf",
-        "GHSA-m732-5p4w-x69g",
-        "GHSA-p6xx-57qc-3wxr",
-        "GHSA-p77w-8qqv-26rm",
-        "GHSA-q5qw-h33p-qvwr",
-        "GHSA-q7jf-gf43-6x6p",
-        "GHSA-qp7p-654g-cw7p",
-        "GHSA-r354-f388-2fhh",
-        "GHSA-r5rp-j6wh-rvv4",
-        "GHSA-rpfr-3m35-5vx5",
-        "GHSA-rv63-4mwf-qqc2",
-        "GHSA-v8w9-8mx6-g223",
-        "GHSA-w332-q679-j88p",
-        "GHSA-w62v-xxxg-mg59",
-        "GHSA-wgpf-jwqj-8h8p",
-        "GHSA-wmmm-f939-6g9c",
-        "GHSA-wwfh-h76j-fc44",
-        "GHSA-xf4j-xp2r-rqqx",
-        "GHSA-xgm2-5f3f-mvvc",
-        "GHSA-xh87-mx6m-69f3",
-        "GHSA-xpcf-pg52-r92g",
-        "GHSA-xrhx-7g5j-rcj5"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -1760,11 +1590,8 @@
       "releaseCadenceDays": 3
     },
     "security": {
-      "knownVulnerabilities": 2,
-      "vulnerabilityIds": [
-        "GHSA-36xv-jgw5-4q75",
-        "GHSA-4jpv-8r57-pv7j"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -1790,10 +1617,8 @@
       "releaseCadenceDays": 23.5
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-23vw-mhv5-grv5"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -1846,10 +1671,8 @@
       "releaseCadenceDays": 3.1
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-cj7v-w2c7-cp7c"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -2219,7 +2042,7 @@
       "deprecated": false
     },
     "downloads": {
-      "weekly": 2257012
+      "weekly": 0
     },
     "compatibility": {
       "esmSupport": false,
@@ -2227,10 +2050,8 @@
       "releaseCadenceDays": 3.8
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-hpwf-8g29-85qm"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -2418,13 +2239,8 @@
       "releaseCadenceDays": 4.2
     },
     "security": {
-      "knownVulnerabilities": 4,
-      "vulnerabilityIds": [
-        "GHSA-6v32-fjc9-9qf6",
-        "GHSA-8wpr-639p-ccrj",
-        "GHSA-r4wm-x892-vjmx",
-        "GHSA-wf42-42fg-fg84"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -2801,10 +2617,8 @@
       "releaseCadenceDays": 16
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "EEF-CVE-2026-56812"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -2911,13 +2725,8 @@
       "releaseCadenceDays": 12.5
     },
     "security": {
-      "knownVulnerabilities": 4,
-      "vulnerabilityIds": [
-        "GHSA-8cf7-32gw-wr33",
-        "GHSA-c7hr-j4mj-j2w6",
-        "GHSA-hjrf-2m68-5959",
-        "GHSA-qwph-4952-7xr6"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -2943,12 +2752,8 @@
       "releaseCadenceDays": 4.4
     },
     "security": {
-      "knownVulnerabilities": 3,
-      "vulnerabilityIds": [
-        "GHSA-58f5-hfqc-jgch",
-        "GHSA-hhhv-q57g-882q",
-        "GHSA-jv3g-j58f-9mq9"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -2974,10 +2779,8 @@
       "releaseCadenceDays": 50
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-v923-w3x8-wh69"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -3003,23 +2806,8 @@
       "releaseCadenceDays": 0.4
     },
     "security": {
-      "knownVulnerabilities": 14,
-      "vulnerabilityIds": [
-        "GHSA-5jpx-9hw9-2fx4",
-        "GHSA-7r7x-4c4q-c4qf",
-        "GHSA-7rqj-j65f-68wh",
-        "GHSA-8fpg-xm3f-6cx3",
-        "GHSA-f9wg-5f46-cjmw",
-        "GHSA-g5fm-jp9v-2432",
-        "GHSA-p6mm-27gq-9v3p",
-        "GHSA-pg53-56cg-4m8q",
-        "GHSA-pgjx-7f9g-9463",
-        "GHSA-q2mx-j4x2-2h74",
-        "GHSA-v64w-49xw-qq89",
-        "GHSA-x445-f3h2-j279",
-        "GHSA-xmf8-cvqr-rfgj",
-        "GHSA-xv97-c62v-4587"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -3045,10 +2833,8 @@
       "releaseCadenceDays": 6.1
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-6g6m-m6h5-w9gf"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -3209,11 +2995,8 @@
       "releaseCadenceDays": 141.5
     },
     "security": {
-      "knownVulnerabilities": 2,
-      "vulnerabilityIds": [
-        "GHSA-8v5f-hp78-jgxq",
-        "GHSA-vgrx-w6rg-8fqf"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -3509,11 +3292,8 @@
       "releaseCadenceDays": 129.9
     },
     "security": {
-      "knownVulnerabilities": 2,
-      "vulnerabilityIds": [
-        "GHSA-3hvj-2783-34x2",
-        "GHSA-g3qw-9pgp-xpj4"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -3679,33 +3459,6 @@
     }
   },
   {
-    "name": "@kinde/jwt-validator",
-    "categories": [
-      "auth-jwt"
-    ],
-    "npm": {
-      "license": null,
-      "maintainers": 2,
-      "createdAt": "2024-04-29T14:53:31.646Z",
-      "modifiedAt": "2026-07-15T17:45:01.776Z",
-      "latestVersion": "0.4.4",
-      "dependenciesCount": 2,
-      "deprecated": false
-    },
-    "downloads": {
-      "weekly": 35264
-    },
-    "compatibility": {
-      "esmSupport": true,
-      "typescriptSupport": true,
-      "releaseCadenceDays": 32
-    },
-    "security": {
-      "knownVulnerabilities": 0,
-      "vulnerabilityIds": []
-    }
-  },
-  {
     "name": "passport-firebase-jwt",
     "categories": [
       "auth-jwt"
@@ -3726,6 +3479,33 @@
       "esmSupport": false,
       "typescriptSupport": true,
       "releaseCadenceDays": 99.8
+    },
+    "security": {
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
+    }
+  },
+  {
+    "name": "@kinde/jwt-validator",
+    "categories": [
+      "auth-jwt"
+    ],
+    "npm": {
+      "license": null,
+      "maintainers": 2,
+      "createdAt": "2024-04-29T14:53:31.646Z",
+      "modifiedAt": "2026-07-15T17:45:01.776Z",
+      "latestVersion": "0.4.4",
+      "dependenciesCount": 2,
+      "deprecated": false
+    },
+    "downloads": {
+      "weekly": 35264
+    },
+    "compatibility": {
+      "esmSupport": true,
+      "typescriptSupport": true,
+      "releaseCadenceDays": 32
     },
     "security": {
       "knownVulnerabilities": 0,
@@ -4268,10 +4048,8 @@
       "releaseCadenceDays": 6.1
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-q7cg-457f-vx79"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -4324,10 +4102,8 @@
       "releaseCadenceDays": 0
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-m95q-7qp3-xv42"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -4353,11 +4129,8 @@
       "releaseCadenceDays": 2
     },
     "security": {
-      "knownVulnerabilities": 2,
-      "vulnerabilityIds": [
-        "GHSA-2g4f-4pwh-qvx6",
-        "GHSA-v88g-cgmw-v5xw"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -4437,10 +4210,8 @@
       "releaseCadenceDays": 6.5
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-fj58-h2fr-3pp2"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -4466,11 +4237,8 @@
       "releaseCadenceDays": 5
     },
     "security": {
-      "knownVulnerabilities": 2,
-      "vulnerabilityIds": [
-        "GHSA-5qjj-4xww-7phc",
-        "GHSA-vqpr-j7v3-hqw9"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -4604,10 +4372,8 @@
       "releaseCadenceDays": 484
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-896r-f27r-55mw"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -5011,14 +4777,8 @@
       "releaseCadenceDays": 46.4
     },
     "security": {
-      "knownVulnerabilities": 5,
-      "vulnerabilityIds": [
-        "GHSA-44fc-8fm5-q62h",
-        "GHSA-4jrm-c32x-w4jf",
-        "GHSA-hf2r-9gf9-rwch",
-        "GHSA-jjf5-wx3j-3fv7",
-        "GHSA-x2w5-725j-gf2g"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -5449,10 +5209,8 @@
       "releaseCadenceDays": 7.1
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-9mx2-prfp-8hqp"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -5640,26 +5398,8 @@
       "releaseCadenceDays": 2.1
     },
     "security": {
-      "knownVulnerabilities": 17,
-      "vulnerabilityIds": [
-        "GHSA-2598-2f59-rmhq",
-        "GHSA-2777-2vq8-c4v4",
-        "GHSA-2v7q-2xqx-f4q5",
-        "GHSA-5v9h-q3gj-c32x",
-        "GHSA-6457-6jrx-69cr",
-        "GHSA-8c25-f3mj-v6h8",
-        "GHSA-98pq-pmw9-4gpm",
-        "GHSA-9c2p-jw8p-f84v",
-        "GHSA-f598-mfpv-gmfx",
-        "GHSA-fw4p-36j9-rrj3",
-        "GHSA-j9xp-92vc-559j",
-        "GHSA-m9jw-237r-gvfv",
-        "GHSA-vqfx-gj96-3w95",
-        "GHSA-wfp9-vr4j-f49j",
-        "GHSA-wrh9-cjv3-2hpw",
-        "GHSA-x2jc-pwfj-h9p3",
-        "GHSA-xqg8-cv3h-xppv"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -5685,15 +5425,8 @@
       "releaseCadenceDays": 0.6
     },
     "security": {
-      "knownVulnerabilities": 6,
-      "vulnerabilityIds": [
-        "GHSA-2rp8-mm9q-fp49",
-        "GHSA-9ggv-8w38-r7pm",
-        "GHSA-fx4w-v43j-vc45",
-        "GHSA-pf2j-9qmp-jqr2",
-        "GHSA-q2pj-6v73-8rgj",
-        "GHSA-w7q7-vjp8-7jv4"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -5746,18 +5479,8 @@
       "releaseCadenceDays": 4.8
     },
     "security": {
-      "knownVulnerabilities": 9,
-      "vulnerabilityIds": [
-        "GHSA-664h-wqgq-64gw",
-        "GHSA-8687-vv9j-hgph",
-        "GHSA-9m93-w8w6-76hh",
-        "GHSA-f825-f98c-gj3g",
-        "GHSA-h8hf-x3f4-xwgp",
-        "GHSA-m7xq-9374-9rvx",
-        "GHSA-r5xw-q988-826m",
-        "GHSA-vg7j-7cwx-8wgw",
-        "GHSA-wpg9-53fq-2r8h"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -5783,11 +5506,8 @@
       "releaseCadenceDays": 4.8
     },
     "security": {
-      "knownVulnerabilities": 2,
-      "vulnerabilityIds": [
-        "GHSA-4jv9-3563-23j3",
-        "GHSA-58v4-qwx5-7f59"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -5813,10 +5533,8 @@
       "releaseCadenceDays": 0.2
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-gpj5-g38j-94v9"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -5923,13 +5641,8 @@
       "releaseCadenceDays": 1.6
     },
     "security": {
-      "knownVulnerabilities": 4,
-      "vulnerabilityIds": [
-        "GHSA-8cpq-38p9-67gx",
-        "GHSA-fr9j-6mvq-frcv",
-        "GHSA-pv5w-4p9q-p3v2",
-        "GHSA-wmrf-hv6w-mr66"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -6630,11 +6343,8 @@
       "releaseCadenceDays": 0.2
     },
     "security": {
-      "knownVulnerabilities": 2,
-      "vulnerabilityIds": [
-        "GHSA-gwhv-j974-6fxm",
-        "GHSA-qpfv-44f3-qqx6"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -6827,35 +6537,6 @@
     }
   },
   {
-    "name": "objection",
-    "categories": [
-      "orm-database"
-    ],
-    "npm": {
-      "license": "MIT",
-      "maintainers": 4,
-      "createdAt": "2012-06-18T07:43:09.156Z",
-      "modifiedAt": "2024-09-25T11:33:07.568Z",
-      "latestVersion": "3.1.5",
-      "dependenciesCount": 3,
-      "deprecated": false
-    },
-    "downloads": {
-      "weekly": 257533
-    },
-    "compatibility": {
-      "esmSupport": false,
-      "typescriptSupport": true,
-      "releaseCadenceDays": 4
-    },
-    "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-r659-8xfp-j327"
-      ]
-    }
-  },
-  {
     "name": "@mikro-orm/knex",
     "categories": [
       "orm-database"
@@ -6878,10 +6559,35 @@
       "releaseCadenceDays": 0.2
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-cfw5-68c4-ffqp"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
+    }
+  },
+  {
+    "name": "objection",
+    "categories": [
+      "orm-database"
+    ],
+    "npm": {
+      "license": "MIT",
+      "maintainers": 4,
+      "createdAt": "2012-06-18T07:43:09.156Z",
+      "modifiedAt": "2024-09-25T11:33:07.568Z",
+      "latestVersion": "3.1.5",
+      "dependenciesCount": 3,
+      "deprecated": false
+    },
+    "downloads": {
+      "weekly": 257533
+    },
+    "compatibility": {
+      "esmSupport": false,
+      "typescriptSupport": true,
+      "releaseCadenceDays": 4
+    },
+    "security": {
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -7123,10 +6829,8 @@
       "releaseCadenceDays": 13.1
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-82v2-mx6x-wq7q"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -7152,13 +6856,8 @@
       "releaseCadenceDays": 15.4
     },
     "security": {
-      "knownVulnerabilities": 4,
-      "vulnerabilityIds": [
-        "GHSA-4x49-vf9v-38px",
-        "GHSA-9vvw-cc9w-f27h",
-        "GHSA-gxpj-cx7g-858c",
-        "MAL-2025-46974"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -7508,10 +7207,8 @@
       "releaseCadenceDays": 7
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-r7jx-5m6m-cpg9"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -7739,8 +7436,8 @@
       "license": "ISC",
       "maintainers": 3,
       "createdAt": "2024-06-06T16:55:19.943Z",
-      "modifiedAt": "2026-06-18T05:58:44.759Z",
-      "latestVersion": "2.0.9",
+      "modifiedAt": "2026-07-25T06:12:52.272Z",
+      "latestVersion": "2.0.10",
       "dependenciesCount": 1,
       "deprecated": false
     },
@@ -8266,11 +7963,8 @@
       "releaseCadenceDays": 33
     },
     "security": {
-      "knownVulnerabilities": 2,
-      "vulnerabilityIds": [
-        "GHSA-4vj7-5mj6-jm8m",
-        "GHSA-gwg9-rgvj-4h5j"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -8404,13 +8098,8 @@
       "releaseCadenceDays": 25.4
     },
     "security": {
-      "knownVulnerabilities": 4,
-      "vulnerabilityIds": [
-        "GHSA-446m-mv8f-q348",
-        "GHSA-87vv-r9j6-g5qv",
-        "GHSA-8hfj-j24r-96c4",
-        "GHSA-wc69-rhjr-hc9g"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -8490,10 +8179,8 @@
       "releaseCadenceDays": 6
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-3xq5-wjfh-ppjc"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -8546,11 +8233,8 @@
       "releaseCadenceDays": 20.9
     },
     "security": {
-      "knownVulnerabilities": 2,
-      "vulnerabilityIds": [
-        "GHSA-3fx5-fwvr-xrjg",
-        "GHSA-w9mr-4mfr-499f"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -9770,10 +9454,8 @@
       "releaseCadenceDays": 41.6
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-qvjc-g5vr-mfgr"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -9799,10 +9481,8 @@
       "releaseCadenceDays": 14.4
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-582f-p4pg-xc74"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -9855,10 +9535,8 @@
       "releaseCadenceDays": 11.2
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-8cv5-p934-3hwp"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -9884,10 +9562,8 @@
       "releaseCadenceDays": 10.9
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-vrw9-g62v-7fmf"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -9913,10 +9589,8 @@
       "releaseCadenceDays": 27.6
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-8cv5-p934-3hwp"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -10077,10 +9751,8 @@
       "releaseCadenceDays": 0
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "MAL-2025-190646"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -11240,11 +10912,8 @@
       "releaseCadenceDays": 1.1
     },
     "security": {
-      "knownVulnerabilities": 2,
-      "vulnerabilityIds": [
-        "GHSA-5xrq-8626-4rwp",
-        "GHSA-9crc-q9x8-hgqq"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -12350,10 +12019,8 @@
       "releaseCadenceDays": 2.2
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-34w8-mcwr-vg29"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -12406,10 +12073,8 @@
       "releaseCadenceDays": 15.5
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "GHSA-9j5q-479x-43g2"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {
@@ -13056,10 +12721,8 @@
       "releaseCadenceDays": 8.8
     },
     "security": {
-      "knownVulnerabilities": 1,
-      "vulnerabilityIds": [
-        "MAL-2026-3868"
-      ]
+      "knownVulnerabilities": 0,
+      "vulnerabilityIds": []
     }
   },
   {

@@ -1,0 +1,20 @@
+{
+  "name": "dep-rec-mcp-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Proof 3 - MCP server exposing the scored package dataset as a recommend_package tool for AI coding assistants.",
+  "scripts": {
+    "server": "tsx src/server.ts",
+    "test-client": "tsx src/test-client.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "@types/node": "^22.10.7"
+  }
+}

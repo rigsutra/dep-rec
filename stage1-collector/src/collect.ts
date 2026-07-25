@@ -105,8 +105,10 @@ async function main() {
   console.log("\nFetching weekly download counts...");
   const downloads = await fetchWeeklyDownloadsBatch(found.map((d) => d.name));
 
-  console.log("Querying OSV for known vulnerabilities...");
-  const vulns = await queryVulnerabilitiesBatch(found.map((d) => d.name));
+  console.log("Querying OSV for known vulnerabilities (scoped to each package's current version)...");
+  const vulns = await queryVulnerabilitiesBatch(
+    found.filter((d) => d.latestVersion).map((d) => ({ name: d.name, version: d.latestVersion! }))
+  );
 
   const records = found.map((d) => ({
     name: d.name,
