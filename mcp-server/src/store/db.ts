@@ -9,7 +9,9 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { SCHEMA_SQL } from "./schema.js";
 
-const DB_PATH = fileURLToPath(new URL("../../data/store.db", import.meta.url));
+// Overridable so tests (and anyone wanting a separate store per project)
+// don't mutate the store.db that ships inside the package.
+const DB_PATH = process.env.DEP_REC_DB_PATH ?? fileURLToPath(new URL("../../data/store.db", import.meta.url));
 
 let dbInstance: DatabaseSync | null = null;
 function getDb(): DatabaseSync {

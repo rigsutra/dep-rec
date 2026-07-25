@@ -314,6 +314,32 @@ host at this server instead, check whether that host restricts the spawned
 process's environment — if `check_package` fails with `fetch failed` and
 `recommend_package` works fine, this is almost certainly why.
 
+## Tests
+
+```bash
+npm test            # all six suites
+npm run test:cli    # the CLI surface on its own
+npm run test:mcp    # the MCP protocol surface on its own
+npm run test:gaps   # what the spec claimed but was never built
+```
+
+~330 adversarial scenarios across >1000 packages, using `node:test` only (no
+framework dependency). Every suite runs against a temp copy of the store, so
+tests can never corrupt the shipped `data/store.db`.
+
+Writing it found **seven real bugs**, all now fixed — including `NaN` scores
+from unparseable registry timestamps, identical packages scoring 0/50/100
+because percentile ranks were assigned by sort index, two legitimate packages
+(`rest`, `js-logger`) branded typosquats, a known typosquat (`reactt`) that had
+been committed into the shipped store database, and `check typescript`
+recommending `7.0.1-rc` as its "battle-tested" pick. Full inventory and the
+reasoning behind each: [`tests/README.md`](tests/README.md).
+
+The gap suite is worth calling out separately: it does **not** fail because a
+capability is missing. It fails if the tool *implies* it did something it
+didn't. It prints a running inventory — currently **9 of 33 spec concepts
+implemented** — which doubles as an honest backlog.
+
 ## Known gaps, carried over honestly from Proof 1/2
 
 - Free-text -> category matching (`data.ts`) is a small keyword/synonym

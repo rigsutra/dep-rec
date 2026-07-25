@@ -22,6 +22,17 @@ function daysAgo(iso: string, now: number): number {
   return Math.round((now - new Date(iso).getTime()) / 86_400_000);
 }
 
+// A semver prerelease carries a hyphenated tag after the version core
+// (1.2.3-rc.1, 7.0.1-beta, 2.0.0-canary.4). These must never be offered as
+// the "safer, more battle-tested" pick: packages with an active prerelease
+// train (typescript, next, vite) publish them constantly, so the newest
+// version past a 30-day window is frequently an rc — and recommending an rc
+// over the latest stable is worse than making no recommendation at all.
+const PRERELEASE = /^\d+\.\d+\.\d+[-+]/;
+function isPrerelease(version: string): boolean {
+  return PRERELEASE.test(version) || /[-+](alpha|beta|rc|canary|next|dev|pre|nightly|experimental|insiders)/i.test(version);
+}
+
 export async function resolveRecommendedVersion(
   name: string,
   latestVersion: string,
@@ -46,11 +57,15 @@ export async function resolveRecommendedVersion(
     };
   }
 
-  // Newest version that IS at least COOLDOWN_DAYS old
+  // Newest STABLE version that is at least COOLDOWN_DAYS old. Prereleases are
+  // skipped: offering an rc as the battle-tested alternative to a stable
+  // release inverts the whole point of the cooldown.
   let safeEntry: VersionEntry | undefined;
   for (let i = versionHistory.length - 1; i >= 0; i--) {
-    if (daysAgo(versionHistory[i].releasedAt, now) >= COOLDOWN_DAYS) {
-      safeEntry = versionHistory[i];
+    const entry = versionHistory[i];
+    if (isPrerelease(entry.version)) continue;
+    if (daysAgo(entry.releasedAt, now) >= COOLDOWN_DAYS) {
+      safeEntry = entry;
       break;
     }
   }
@@ -58,7 +73,7 @@ export async function resolveRecommendedVersion(
   if (!safeEntry) {
     return {
       recommendedVersion: latestVersion,
-      reason: `${latestVersion} was released only ${latestAgeDays} day(s) ago, but this package has no version older than ${COOLDOWN_DAYS} days yet — recommending the latest anyway since there's no older option to fall back to.`,
+      reason: `${latestVersion} was released only ${latestAgeDays} day(s) ago, but this package has no stable version older than ${COOLDOWN_DAYS} days to fall back to — recommending the latest.`,
     };
   }
 
