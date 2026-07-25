@@ -3,8 +3,19 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Proof 3 - MCP server exposing the scored package dataset as a recommend_package tool for AI coding assistants.",
+  "description": "MCP server for AI coding assistants: recommend the best-fit npm package for a described need, or check any arbitrary package's health/security live.",
+  "bin": {
+    "dep-rec-mcp-server": "dist/server.js"
+  },
+  "main": "dist/server.js",
+  "files": [
+    "dist",
+    "data"
+  ],
   "scripts": {
+    "build": "tsc",
+    "prepack": "npm run build",
+    "sync-data": "node -e \"require('fs').copyFileSync('../stage1-collector/data/scored.json','data/scored.json')\"",
     "server": "tsx src/server.ts",
     "test-client": "tsx src/test-client.ts"
   },

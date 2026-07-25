@@ -1,4 +1,7 @@
 import { readFile } from "node:fs/promises";
+import { fetchPackageDoc, fetchWeeklyDownloads } from "./sources/npm.js";
+import { queryVulnerabilities } from "./sources/osv.js";
+import { scorePackageAbsolute } from "./live-score.js";
 
 export interface ScoredPackage {
   name: string;
@@ -26,7 +29,10 @@ export interface ScoredPackage {
   };
 }
 
-const DATA_URL = new URL("../../stage1-collector/data/scored.json", import.meta.url);
+// Bundled inside the package itself (copied from stage1-collector/data at
+// build time) so an installed copy of this package is self-contained and
+// doesn't depend on the monorepo's sibling folders existing.
+const DATA_URL = new URL("../data/scored.json", import.meta.url);
 
 let cache: ScoredPackage[] | null = null;
 async function loadData(): Promise<ScoredPackage[]> {
@@ -147,5 +153,85 @@ export async function recommend(input: RecommendInput): Promise<RecommendResult>
     note: matched
       ? undefined
       : `No category matched "${input.need}" — ranked across the entire dataset instead of one category. Known categories: ${categoryKeys.join(", ")}`,
+  };
+}
+
+export interface CheckPackageResult {
+  name: string;
+  found: boolean;
+  reason?: string;
+  inCuratedDataset: boolean;
+  score?: number;
+  reasons?: string[];
+  npm?: {
+    license: string | null;
+    maintainers: number;
+    latestVersion: string | null;
+    dependenciesCount: number;
+    deprecated: boolean;
+  };
+  weeklyDownloads?: number;
+  note: string;
+}
+
+// Live, on-demand check for ANY package name — not just the curated 500.
+// This is what makes the server general-purpose rather than confined to
+// the 10 seeded categories, and it doubles as an existence check: a 404
+// here is exactly the signature of a hallucinated or typosquatted package
+// name, which is worth surfacing explicitly rather than just scoring 0.
+export async function checkPackage(name: string): Promise<CheckPackageResult> {
+  const curated = (await loadData()).find((p) => p.name === name);
+  if (curated) {
+    return {
+      name,
+      found: true,
+      inCuratedDataset: true,
+      score: curated.scoring.total,
+      reasons: curated.scoring.reasons,
+      npm: {
+        license: curated.npm.license,
+        maintainers: curated.npm.maintainers,
+        latestVersion: curated.npm.latestVersion,
+        dependenciesCount: curated.npm.dependenciesCount,
+        deprecated: curated.npm.deprecated,
+      },
+      weeklyDownloads: curated.downloads.weekly,
+      note: "Already in the curated dataset — this score is ranked against real category competitors (see recommend_package for the comparison). Prefer that over this absolute score when a same-category alternative matters.",
+    };
+  }
+
+  const doc = await fetchPackageDoc(name);
+  if (!doc.found) {
+    return {
+      name,
+      found: false,
+      reason: doc.reason,
+      inCuratedDataset: false,
+      note: "This package does not resolve on the npm registry. If this name came from a suggestion rather than a known dependency, treat it as a likely hallucinated or typosquatted name and verify before installing anything.",
+    };
+  }
+
+  const [weeklyDownloads, vulnerabilityIds] = await Promise.all([
+    fetchWeeklyDownloads(name),
+    doc.latestVersion ? queryVulnerabilities(name, doc.latestVersion) : Promise.resolve([]),
+  ]);
+
+  const scoring = scorePackageAbsolute({ doc, weeklyDownloads, vulnerabilityIds });
+
+  return {
+    name,
+    found: true,
+    inCuratedDataset: false,
+    score: scoring.total,
+    reasons: scoring.reasons,
+    npm: {
+      license: doc.license,
+      maintainers: doc.maintainersCount,
+      latestVersion: doc.latestVersion,
+      dependenciesCount: doc.dependenciesCount,
+      deprecated: doc.deprecated,
+    },
+    weeklyDownloads,
+    note: "Scored live on an absolute scale (fetched just now) — not ranked against category competitors like the curated dataset is. If this package fits one of the 10 known categories, recommend_package will give a more meaningful comparative score.",
   };
 }

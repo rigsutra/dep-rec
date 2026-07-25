@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // Proof 3 — expose the scored dataset as an MCP server so an AI coding
 // assistant can call it directly, mid-conversation, before recommending or
 // installing a package. This is the part of the roadmap that actually
@@ -7,7 +8,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { listCategories, recommend } from "./data.js";
+import { listCategories, recommend, checkPackage } from "./data.js";
 
 const server = new McpServer({ name: "dep-rec-engine", version: "0.1.0" });
 
@@ -47,6 +48,26 @@ server.registerTool(
   },
   async (args) => {
     const result = await recommend(args);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+server.registerTool(
+  "check_package",
+  {
+    title: "Check any npm package",
+    description:
+      "Look up and score ANY npm package by name, live — not limited to the 10 curated categories. Fetches real " +
+      "registry/OSV data on demand (does not use training-data familiarity). If the name doesn't resolve on the " +
+      "npm registry at all, treat that as a strong signal it may be hallucinated or typosquatted — verify before " +
+      "installing anything with that name. Prefer recommend_package instead when the package fits one of the " +
+      "known categories, since that score is ranked against real competitors rather than on an absolute scale.",
+    inputSchema: {
+      name: z.string().describe("Exact npm package name to check, e.g. 'left-pad' or '@scope/package'"),
+    },
+  },
+  async ({ name }) => {
+    const result = await checkPackage(name);
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   }
 );

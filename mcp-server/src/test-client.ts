@@ -11,10 +11,20 @@ function textOf(result: { content: Array<{ type: string; text?: string }> }): st
   return block?.text ?? "(no text content)";
 }
 
+function cleanEnv(): Record<string, string> {
+  return Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== undefined)) as Record<string, string>;
+}
+
 async function main() {
   const transport = new StdioClientTransport({
     command: "node",
     args: ["--import", "tsx/esm", "src/server.ts"],
+    // The MCP SDK's default spawn environment on Windows is a short
+    // allowlist that excludes whatever this network layer needs for
+    // outbound HTTPS — check_package's live registry/OSV calls fail with a
+    // bare "fetch failed" without this. Any real MCP host that restricts
+    // the spawned process's environment will hit the same thing.
+    env: cleanEnv(),
   });
 
   const client = new Client({ name: "test-client", version: "0.1.0" });
@@ -37,6 +47,12 @@ async function main() {
   for (const q of queries) {
     console.log(`\n--- recommend_package(${JSON.stringify(q)}) ---`);
     console.log(textOf((await client.callTool({ name: "recommend_package", arguments: q })) as any));
+  }
+
+  const checks = ["zod", "left-pad", "definitely-not-a-real-package-xyz-123"];
+  for (const name of checks) {
+    console.log(`\n--- check_package({"name":"${name}"}) ---`);
+    console.log(textOf((await client.callTool({ name: "check_package", arguments: { name } })) as any));
   }
 
   await client.close();

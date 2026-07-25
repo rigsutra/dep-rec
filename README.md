@@ -18,7 +18,12 @@ Working through the roadmap's proofs, in order:
       popularity ([`stage1-collector/src/score.ts`](stage1-collector/src/score.ts))
 - [x] **Proof 3** — wrap it as an MCP tool, prove an assistant can call it
       ([`mcp-server/`](mcp-server)) — verified via a real MCP client/server
-      round trip, not yet wired into a live editor's MCP config
+      round trip, packaged and installed as a real dependency in a separate
+      scratch project ([`example-consumer/`](example-consumer)), and
+      generalized with a `check_package` tool that scores *any* npm package
+      live, not just the curated 500. Not yet wired into a live editor's
+      MCP config, and not published to the public npm registry (private by
+      design — see `mcp-server/README.md`).
 - [ ] Proof 4 — benchmark AI-with-tool vs. AI-without
 
 ## Layout
@@ -37,10 +42,16 @@ stage1-collector/     Tier 1 + Tier 2 data collector — builds a ~500-package
                       the deterministic rubric, writes data/scored.json.
 
 mcp-server/           Wraps the scored dataset as an MCP server
-                      (list_categories, recommend_package) so an AI
-                      assistant can call it directly. Includes a real
-                      test client that spawns the server and calls it
-                      over the actual MCP protocol.
+                      (list_categories, recommend_package, check_package)
+                      so an AI assistant can call it directly. Builds to a
+                      real installable package (bin entry, bundled data).
+                      Includes a real test client that spawns the server
+                      and calls it over the actual MCP protocol.
+
+example-consumer/     A from-scratch project that installs mcp-server's
+                      packed tarball as a real devDependency and calls it
+                      purely from node_modules/ — proof this behaves like
+                      an actual dependency, not just "runs from source."
 ```
 
 Each subfolder is its own small Node/TypeScript project (own `package.json`,
@@ -78,6 +89,20 @@ excellent, actively-patched CJS-only packages (`express`, `jsonwebtoken`,
 `mocha`) relative to modern ESM-native ones (`hono`, `jose`, `jotai`) even
 for plain Node use cases where ESM doesn't actually matter. Worth deciding
 deliberately later, not silently.
+
+## A third real bug, caught while packaging Proof 3
+
+`check_package` makes live outbound HTTPS calls (unlike the other two
+tools, which only read the bundled local dataset) — and it failed with a
+bare `fetch failed` the first time it ran through a real MCP client/server
+subprocess, despite the identical code working fine called directly.
+Cause: the MCP SDK's default environment for a spawned server process on
+Windows is a short allowlist (`APPDATA`, `PATH`, `SYSTEMROOT`, a handful of
+others) that doesn't pass through whatever this machine's network layer
+needs for outbound HTTPS. Fixed by passing `env: process.env` explicitly in
+both test clients — but worth knowing generally: any real MCP host that
+restricts a spawned server's environment will hit the same failure for any
+server that needs real network access, not just this one.
 
 ## Not yet wired in
 

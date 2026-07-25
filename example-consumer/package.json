@@ -1,0 +1,10 @@
+{
+  "name": "example-consumer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Minimal example project showing dep-rec-mcp-server installed as a real devDependency, not run from source.",
+  "devDependencies": {
+    "dep-rec-mcp-server": "file:../mcp-server/dep-rec-mcp-server-0.1.0.tgz"
+  }
+}
