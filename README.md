@@ -16,16 +16,17 @@ Working through the roadmap's proofs, in order:
       competing categories ([`stage1-collector/`](stage1-collector))
 - [x] **Proof 2** — rank packages within a category better than raw
       popularity ([`stage1-collector/src/score.ts`](stage1-collector/src/score.ts))
-- [x] **Proof 3** — wrap it as an MCP tool, prove an assistant can call it
-      ([`mcp-server/`](mcp-server)) — verified via a real MCP client/server
-      round trip, packaged and installed as a real dependency in a separate
-      scratch project ([`example-consumer/`](example-consumer)), generalized
-      with a `check_package` tool that scores *any* npm package live, and
-      backed by a persistent store (SQLite) instead of a static snapshot —
-      a package is fetched once, served from storage for everyone after
-      that, and kept fresh by a background refresh job. Not yet wired into
-      a live editor's MCP config, and not published to the public npm
-      registry (private by design — see `mcp-server/README.md`).
+- [x] **Proof 3** — wrap it as an MCP tool *and* a CLI, prove both work as a
+      real installed dependency ([`mcp-server/`](mcp-server)) — verified via
+      a real MCP client/server round trip and `npx dep-rec ...` from a
+      separate scratch project ([`example-consumer/`](example-consumer)),
+      generalized with a `check_package`/`dep-rec check` command that scores
+      *any* npm package live, and backed by a persistent store (SQLite)
+      instead of a static snapshot — a package is fetched once, served from
+      storage for everyone after that, and kept fresh by a background
+      refresh job. Not yet wired into a live editor's MCP config, and not
+      published to the public npm registry (private by design — see
+      `mcp-server/README.md`).
 - [ ] Proof 4 — benchmark AI-with-tool vs. AI-without
 
 ## Layout
@@ -43,20 +44,24 @@ stage1-collector/     Tier 1 + Tier 2 data collector — builds a ~500-package
                       Also has the scoring engine (src/score.ts) — applies
                       the deterministic rubric, writes data/scored.json.
 
-mcp-server/           Wraps a persistent SQLite-backed store as an MCP
-                      server (list_categories, recommend_package,
-                      check_package) so an AI assistant can call it
-                      directly. Builds to a real installable package (bin
-                      entry, bundled data/store.db). Includes a real test
-                      client that spawns the server and calls it over the
-                      actual MCP protocol, and a background refresh worker
+mcp-server/           Wraps a persistent SQLite-backed store behind two
+                      interfaces sharing the same logic: an MCP server
+                      (list_categories, recommend_package, check_package)
+                      for AI assistants, and a `dep-rec` CLI for humans or
+                      non-MCP-aware scripts/agents. Builds to a real
+                      installable package (two bin entries, bundled
+                      data/store.db). Includes a real test client that
+                      spawns the server over the actual MCP protocol, and
+                      a background refresh worker
                       (src/store/refresh-worker.ts) that keeps tracked
                       packages' data from going stale.
 
 example-consumer/     A from-scratch project that installs mcp-server's
-                      packed tarball as a real devDependency and calls it
-                      purely from node_modules/ — proof this behaves like
-                      an actual dependency, not just "runs from source."
+                      packed tarball as a real devDependency and calls
+                      both interfaces (`npx dep-rec ...` and the MCP
+                      client) purely from node_modules/ — proof this
+                      behaves like an actual dependency, not just "runs
+                      from source."
 ```
 
 Each subfolder is its own small Node/TypeScript project (own `package.json`,
@@ -130,6 +135,18 @@ scoring implementations that had started to diverge (the category-relative
 percentile scorer and the absolute-scale live scorer) into one shared
 module (`store/scoring.ts`), since every package now lives in the same
 table regardless of where it came from.
+
+## CLI, sharing the same logic as the MCP server
+
+`mcp-server/src/cli.ts` (`dep-rec` once installed) is a second interface on
+top of the identical `data.ts`/store logic — for humans running it
+directly, or any script/agent that isn't MCP-aware but can shell out to a
+devDependency's bin. One small real bug caught while testing it: the
+default number formatting (`toLocaleString()` with no explicit locale)
+picked up this machine's locale and printed download counts with Indian
+numbering grouping (`23,91,77,371` instead of `239,177,371`) — fixed by
+pinning `"en-US"` explicitly rather than trusting whatever locale the host
+happens to have configured.
 
 ## Not yet wired in
 

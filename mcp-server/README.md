@@ -1,13 +1,28 @@
-# Proof 3 — MCP server, packaged as a real installable dependency
+# Dependency recommendation — MCP server + CLI, packaged as a real installable dependency
 
-Wraps a persistent package store ([`src/store/`](src/store)) as an MCP
-server so an AI assistant can call it directly, mid-conversation, before
-recommending or installing a package — the actual thesis this whole
-project is testing. Ships as a proper npm package (`npm run build` + a
-`bin` entry + the store bundled inside `data/`), not just something you
-run from source inside this monorepo.
+Wraps a persistent package store ([`src/store/`](src/store)) behind two
+interfaces sharing the exact same logic: an MCP server so an AI assistant
+can call it directly mid-conversation (the actual thesis this whole
+project is testing), and a plain CLI (`dep-rec`) for humans or any
+non-MCP-aware script/agent. Ships as a proper npm package — `npm install
+--save-dev dep-rec-mcp-server` gives you both `dep-rec` and
+`dep-rec-mcp-server` commands — not just something you run from source
+inside this monorepo.
 
-## Tools exposed
+## CLI
+
+```bash
+npx dep-rec check left-pad
+npx dep-rec recommend "jwt library" --runtime edge
+npx dep-rec recommend "csv parser" --limit 3 --json
+npx dep-rec categories
+```
+
+Add `--json` to any command for machine-readable output instead of the
+human-readable default — useful if a script or agent wants to parse it
+without going through MCP at all.
+
+## Tools exposed (MCP)
 
 - **`list_categories`** — the 10 competing-package categories and how many
   packages are tracked in each.
@@ -117,6 +132,8 @@ that installs that tarball with `npm install --save-dev <path-to-tgz>` and
 calls all three tools purely from `node_modules/` — no access to this
 monorepo's source. That's the actual proof this behaves like a real
 dependency, not just "runs from source when I `cd` into the right folder."
+The CLI is even simpler to check this way — `npx dep-rec check <name>`
+works immediately once installed, no client code needed.
 
 `example-consumer/test.mjs` also proves the store-sharing claim
 specifically: it spawns the server *twice*, as two fully separate

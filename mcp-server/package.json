@@ -3,9 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "MCP server for AI coding assistants: recommend the best-fit npm package for a described need, or check any arbitrary package's health/security live.",
+  "description": "Recommend the best-fit npm package for a described need, or check any arbitrary package's health/security live — as an MCP server for AI assistants, or a plain CLI.",
   "bin": {
-    "dep-rec-mcp-server": "dist/server.js"
+    "dep-rec-mcp-server": "dist/server.js",
+    "dep-rec": "dist/cli.js"
   },
   "main": "dist/server.js",
   "files": [
