@@ -1,44 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { fetchPackageDoc, fetchWeeklyDownloads } from "./sources/npm.js";
-import { queryVulnerabilities } from "./sources/osv.js";
-import { scorePackageAbsolute } from "./live-score.js";
-
-export interface ScoredPackage {
-  name: string;
-  categories: string[];
-  npm: {
-    license: string | null;
-    maintainers: number;
-    createdAt: string | null;
-    modifiedAt: string | null;
-    latestVersion: string | null;
-    dependenciesCount: number;
-    deprecated: boolean;
-  };
-  downloads: { weekly: number };
-  compatibility: { esmSupport: boolean; typescriptSupport: boolean; releaseCadenceDays: number | null };
-  security: { knownVulnerabilities: number; vulnerabilityIds: string[] };
-  scoring: {
-    total: number;
-    security: number;
-    maintenance: number;
-    compatibility: number;
-    community: number;
-    supplyChain: number;
-    reasons: string[];
-  };
-}
-
-// Bundled inside the package itself (copied from stage1-collector/data at
-// build time) so an installed copy of this package is self-contained and
-// doesn't depend on the monorepo's sibling folders existing.
-const DATA_URL = new URL("../data/scored.json", import.meta.url);
-
-let cache: ScoredPackage[] | null = null;
-async function loadData(): Promise<ScoredPackage[]> {
-  if (!cache) cache = JSON.parse(await readFile(DATA_URL, "utf8"));
-  return cache!;
-}
+import { listAllCategoryCounts, listByCategory, listAll } from "./store/db.js";
+import { getOrFetchPackage } from "./store/lookup.js";
 
 // Crude free-text -> category mapping. A real version would need fuzzy
 // matching against package descriptions (not collected yet) or embeddings;
@@ -79,10 +40,7 @@ const SYNONYMS: Record<string, string> = {
 };
 
 export async function listCategories(): Promise<Array<{ key: string; count: number }>> {
-  const data = await loadData();
-  const counts = new Map<string, number>();
-  for (const pkg of data) for (const c of pkg.categories) counts.set(c, (counts.get(c) ?? 0) + 1);
-  return [...counts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => a.key.localeCompare(b.key));
+  return listAllCategoryCounts();
 }
 
 function matchCategory(need: string, categoryKeys: string[]): string | null {
@@ -116,15 +74,14 @@ export interface RecommendResult {
 }
 
 export async function recommend(input: RecommendInput): Promise<RecommendResult> {
-  const data = await loadData();
-  const categoryKeys = [...new Set(data.flatMap((p) => p.categories))];
+  const categoryKeys = listAllCategoryCounts().map((c) => c.key);
   const matched = matchCategory(input.need, categoryKeys);
 
-  let candidates = matched ? data.filter((p) => p.categories.includes(matched)) : data;
+  let candidates = matched ? listByCategory(matched) : listAll();
 
   if (input.license) {
     const wanted = input.license.toLowerCase();
-    candidates = candidates.filter((p) => p.npm.license?.toLowerCase() === wanted);
+    candidates = candidates.filter((p) => p.license?.toLowerCase() === wanted);
   }
 
   const caveats: string[] = [];
@@ -133,17 +90,18 @@ export async function recommend(input: RecommendInput): Promise<RecommendResult>
       "Edge Runtime fit has NOT been sandbox-tested for this dataset (that's Proof 0's @edge-runtime/vm check, run separately and not yet merged in). ESM support is used as a weak proxy here, not a real guarantee — verify before deploying to an edge function."
     );
   }
+
   const ranked = candidates
     .slice()
-    .sort((a, b) => b.scoring.total - a.scoring.total)
+    .sort((a, b) => (b.score_total ?? 0) - (a.score_total ?? 0))
     .slice(0, input.limit ?? 5)
     .map((p) => ({
       package: p.name,
-      score: p.scoring.total,
+      score: p.score_total ?? 0,
       categories: p.categories,
-      license: p.npm.license,
-      weeklyDownloads: p.downloads.weekly,
-      reasons: p.scoring.reasons,
+      license: p.license,
+      weeklyDownloads: p.weekly_downloads,
+      reasons: p.score_reasons,
     }));
 
   return {
@@ -152,7 +110,7 @@ export async function recommend(input: RecommendInput): Promise<RecommendResult>
     caveats,
     note: matched
       ? undefined
-      : `No category matched "${input.need}" — ranked across the entire dataset instead of one category. Known categories: ${categoryKeys.join(", ")}`,
+      : `No category matched "${input.need}" — ranked across the entire tracked dataset instead of one category. Known categories: ${categoryKeys.join(", ")}`,
   };
 }
 
@@ -161,6 +119,7 @@ export interface CheckPackageResult {
   found: boolean;
   reason?: string;
   inCuratedDataset: boolean;
+  servedFrom?: "cache" | "live-fetch";
   score?: number;
   reasons?: string[];
   npm?: {
@@ -175,63 +134,44 @@ export interface CheckPackageResult {
 }
 
 // Live, on-demand check for ANY package name — not just the curated 500.
-// This is what makes the server general-purpose rather than confined to
-// the 10 seeded categories, and it doubles as an existence check: a 404
-// here is exactly the signature of a hallucinated or typosquatted package
-// name, which is worth surfacing explicitly rather than just scoring 0.
+// Backed by the persistent store: a package already checked recently is
+// served straight from disk (servedFrom: "cache", zero network calls); a
+// new or stale one triggers a real fetch, gets stored, and is from then on
+// covered by the background refresh worker automatically. A 404 here is
+// exactly the signature of a hallucinated or typosquatted package name.
 export async function checkPackage(name: string): Promise<CheckPackageResult> {
-  const curated = (await loadData()).find((p) => p.name === name);
-  if (curated) {
-    return {
-      name,
-      found: true,
-      inCuratedDataset: true,
-      score: curated.scoring.total,
-      reasons: curated.scoring.reasons,
-      npm: {
-        license: curated.npm.license,
-        maintainers: curated.npm.maintainers,
-        latestVersion: curated.npm.latestVersion,
-        dependenciesCount: curated.npm.dependenciesCount,
-        deprecated: curated.npm.deprecated,
-      },
-      weeklyDownloads: curated.downloads.weekly,
-      note: "Already in the curated dataset — this score is ranked against real category competitors (see recommend_package for the comparison). Prefer that over this absolute score when a same-category alternative matters.",
-    };
-  }
+  const result = await getOrFetchPackage(name);
 
-  const doc = await fetchPackageDoc(name);
-  if (!doc.found) {
+  if (!result.found) {
     return {
       name,
       found: false,
-      reason: doc.reason,
+      reason: result.reason,
       inCuratedDataset: false,
       note: "This package does not resolve on the npm registry. If this name came from a suggestion rather than a known dependency, treat it as a likely hallucinated or typosquatted name and verify before installing anything.",
     };
   }
 
-  const [weeklyDownloads, vulnerabilityIds] = await Promise.all([
-    fetchWeeklyDownloads(name),
-    doc.latestVersion ? queryVulnerabilities(name, doc.latestVersion) : Promise.resolve([]),
-  ]);
-
-  const scoring = scorePackageAbsolute({ doc, weeklyDownloads, vulnerabilityIds });
+  const row = result.row!;
+  const inCuratedDataset = row.categories.length > 0;
 
   return {
-    name,
+    name: row.name,
     found: true,
-    inCuratedDataset: false,
-    score: scoring.total,
-    reasons: scoring.reasons,
+    inCuratedDataset,
+    servedFrom: result.servedFrom,
+    score: row.score_total ?? undefined,
+    reasons: row.score_reasons,
     npm: {
-      license: doc.license,
-      maintainers: doc.maintainersCount,
-      latestVersion: doc.latestVersion,
-      dependenciesCount: doc.dependenciesCount,
-      deprecated: doc.deprecated,
+      license: row.license,
+      maintainers: row.maintainers,
+      latestVersion: row.latest_version,
+      dependenciesCount: row.dependencies_count,
+      deprecated: row.deprecated,
     },
-    weeklyDownloads,
-    note: "Scored live on an absolute scale (fetched just now) — not ranked against category competitors like the curated dataset is. If this package fits one of the 10 known categories, recommend_package will give a more meaningful comparative score.",
+    weeklyDownloads: row.weekly_downloads,
+    note: inCuratedDataset
+      ? "In a known category — this score is ranked against real category competitors (see recommend_package for the full comparison)."
+      : "Scored on an absolute scale — not ranked against category competitors since this package isn't in a known category. Now tracked in the store either way, and will be kept fresh by the background refresh worker.",
   };
 }

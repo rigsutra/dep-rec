@@ -19,11 +19,13 @@ Working through the roadmap's proofs, in order:
 - [x] **Proof 3** — wrap it as an MCP tool, prove an assistant can call it
       ([`mcp-server/`](mcp-server)) — verified via a real MCP client/server
       round trip, packaged and installed as a real dependency in a separate
-      scratch project ([`example-consumer/`](example-consumer)), and
-      generalized with a `check_package` tool that scores *any* npm package
-      live, not just the curated 500. Not yet wired into a live editor's
-      MCP config, and not published to the public npm registry (private by
-      design — see `mcp-server/README.md`).
+      scratch project ([`example-consumer/`](example-consumer)), generalized
+      with a `check_package` tool that scores *any* npm package live, and
+      backed by a persistent store (SQLite) instead of a static snapshot —
+      a package is fetched once, served from storage for everyone after
+      that, and kept fresh by a background refresh job. Not yet wired into
+      a live editor's MCP config, and not published to the public npm
+      registry (private by design — see `mcp-server/README.md`).
 - [ ] Proof 4 — benchmark AI-with-tool vs. AI-without
 
 ## Layout
@@ -41,12 +43,15 @@ stage1-collector/     Tier 1 + Tier 2 data collector — builds a ~500-package
                       Also has the scoring engine (src/score.ts) — applies
                       the deterministic rubric, writes data/scored.json.
 
-mcp-server/           Wraps the scored dataset as an MCP server
-                      (list_categories, recommend_package, check_package)
-                      so an AI assistant can call it directly. Builds to a
-                      real installable package (bin entry, bundled data).
-                      Includes a real test client that spawns the server
-                      and calls it over the actual MCP protocol.
+mcp-server/           Wraps a persistent SQLite-backed store as an MCP
+                      server (list_categories, recommend_package,
+                      check_package) so an AI assistant can call it
+                      directly. Builds to a real installable package (bin
+                      entry, bundled data/store.db). Includes a real test
+                      client that spawns the server and calls it over the
+                      actual MCP protocol, and a background refresh worker
+                      (src/store/refresh-worker.ts) that keeps tracked
+                      packages' data from going stale.
 
 example-consumer/     A from-scratch project that installs mcp-server's
                       packed tarball as a real devDependency and calls it
@@ -104,6 +109,28 @@ both test clients — but worth knowing generally: any real MCP host that
 restricts a spawned server's environment will hit the same failure for any
 server that needs real network access, not just this one.
 
+## From static snapshot to persistent store
+
+The original `mcp-server` just read a bundled `scored.json` — fine for the
+curated 500, but wrong for "check any package": every `check_package` call
+would refetch from the live registry, even for a package 99 other people
+had already asked about seconds earlier. `mcp-server/src/store/` replaces
+that with a real SQLite-backed store (`node:sqlite`, no native dependency)
+holding both raw registry/OSV data and computed scores. The actual
+behavior, proved with two genuinely separate spawned processes in
+`example-consumer/test.mjs`: the first lookup of a never-seen package
+returns `servedFrom: "live-fetch"`; a second, fully independent process
+checking the same package gets `servedFrom: "cache"` with identical data —
+zero network calls, because both processes share the same file on disk.
+
+A package enters the store — and therefore future background refreshing
+via `npm run refresh` — the moment anyone looks it up, whether it's one of
+the curated 500 or a brand-new `check_package` call. This also unified two
+scoring implementations that had started to diverge (the category-relative
+percentile scorer and the absolute-scale live scorer) into one shared
+module (`store/scoring.ts`), since every package now lives in the same
+table regardless of where it came from.
+
 ## Not yet wired in
 
 - GitHub-derived signals (stars, forks, bus factor) — needs an authenticated
@@ -118,3 +145,9 @@ server that needs real network access, not just this one.
 - The MCP server isn't registered in any live editor/assistant's MCP config
   yet — that's a config change on your own machine, left as a manual step
   (see `mcp-server/README.md`) rather than done automatically.
+- `npm run refresh` (the background surveillance job) is a script, not a
+  scheduled one — nothing currently invokes it on a timer. Wiring that up
+  is a deployment decision, not something to bake in silently.
+- `node:sqlite` is still an experimental Node API. Fine for a prototype at
+  this scale; worth revisiting (`better-sqlite3` or similar) before this
+  goes anywhere near production.
