@@ -22,7 +22,7 @@ Zero dependencies. Node 22+.
 ## The problem
 
 An LLM's package knowledge is a snapshot of its training data, and it is
-confidently wrong in three specific ways:
+confidently wrong in four specific ways:
 
 | Failure | What it looks like |
 |---|---|
@@ -34,13 +34,6 @@ confidently wrong in three specific ways:
 Asking the model to be more careful does not fix any of these. The
 information is not in the weights. `dep-rec` puts it in the context window
 instead.
-
-*(Every package named above was verified with `dep-rec check` while writing
-this. The first draft used two examples that turned out to be wrong — one
-"nonexistent" package that exists, and `moment`, which is widely believed to
-be deprecated and is not. Naming a specific nonexistent package here would
-also hand a slopsquatter a target, so that row describes the pattern
-instead.)*
 
 ## Why "AI-first"
 
@@ -77,9 +70,10 @@ response says the vulnerability status is *unknown* — not "no known
 vulnerabilities". Same for adoption data. Failing closed matters more when
 the reader is a model inclined to summarise optimistically.
 
-**Output is bounded.** A corrupt store row once produced a 216 KB response.
-For a tool feeding a context window, response size is a correctness property,
-so per-row output is capped.
+**Output is bounded.** When the consumer is a context window, response size
+is a correctness property, not a performance one — so per-row output is
+capped. A single corrupt row was enough to produce a 216 KB response before
+that cap existed.
 
 **The tool descriptions are part of the product.** They are long on purpose —
 they tell the model how to read `reasonCode`, when a resolvable package is
@@ -134,6 +128,54 @@ Then the conversation goes differently:
 > weekly downloads and its name is one character from `csv-parser`
 > (3.3M/week) — that is the typosquat pattern.
 
+### What the model actually receives
+
+Every field exists to stop a specific misreading. This is real output from
+`check_package` on `csvparser`, unedited:
+
+```json
+{
+  "name": "csvparser",
+  "found": true,
+  "servedFrom": "cache",
+  "score": 46.6,
+  "reasons": [
+    "no known vulnerabilities affecting the current version",
+    "no recent release relative to category peers",
+    "single maintainer — bus-factor risk",
+    "no ESM or bundled TS types detected",
+    "zero direct dependencies"
+  ],
+  "npm": {
+    "license": null,
+    "maintainers": 1,
+    "latestVersion": "0.1.4",
+    "dependenciesCount": 0,
+    "deprecated": false
+  },
+  "weeklyDownloads": 86,
+  "typosquatWarning": {
+    "targetPackage": "csv-parser",
+    "targetWeeklyDownloads": 3288172,
+    "reason": "Name is one character away from \"csv-parser\" (3,288,172 weekly downloads vs. this package's 86) — classic typosquat pattern. Verify this is really the package you meant before installing."
+  },
+  "recommendable": false,
+  "notRecommendableBecause": [
+    "only 86 weekly downloads (recommendation floor is 10,000)",
+    "no release in 1503 days (limit is 1000 at this adoption level)"
+  ],
+  "note": "In a known category — this score is ranked against real category competitors."
+}
+```
+
+Note what is *not* there: no bare boolean verdict for the model to
+misinterpret. `score` is meaningless on its own, so `reasons` always
+accompanies it. `recommendable: false` is never left unexplained —
+`notRecommendableBecause` says which bar was missed and by how much. And
+`deprecated: false` sits right next to a `recommendable: false`, because
+"not formally deprecated" and "safe to recommend" are different claims and
+the tool must not let a model conflate them.
+
 ### The three tools
 
 | Tool | What it answers |
@@ -173,6 +215,10 @@ $ npx dep-rec check csvparser
 
 Add `--json` to any command for machine-readable output. `--db <path>` uses a
 different store file. Full flags: `dep-rec --help`.
+
+Scores move with the underlying data, so your numbers will not match the
+sample above exactly — and `[cache]` reads `[live-fetch]` the first time a
+package is seen.
 
 Useful in CI, too — `check` exits non-zero when a package cannot be resolved,
 so a hallucinated name in a PR fails the build.
