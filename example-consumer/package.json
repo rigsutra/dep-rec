@@ -3,9 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Minimal example project showing dep-rec installed as a real devDependency, not run from source.",
+  "description": "Minimal example project showing drec installed as a real devDependency, not run from source.",
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "dep-rec": "file:../mcp-server/dep-rec-0.2.0.tgz"
+    "drec": "file:../mcp-server/drec-0.3.0.tgz"
   }
 }

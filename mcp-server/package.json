@@ -1,5 +1,5 @@
 {
-  "name": "dep-rec",
+  "name": "drec",
   "private": false,
   "version": "0.3.0",
   "type": "module",
@@ -24,8 +24,8 @@
     "security"
   ],
   "bin": {
-    "dep-rec": "dist/cli.js",
-    "dep-rec-mcp-server": "dist/server.js"
+    "drec": "dist/cli.js",
+    "drec-mcp-server": "dist/server.js"
   },
   "main": "dist/server.js",
   "files": [

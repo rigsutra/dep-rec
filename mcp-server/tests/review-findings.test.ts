@@ -28,12 +28,12 @@ let workDir: string;
 let storePath: string;
 
 before(() => {
-  workDir = mkdtempSync(join(tmpdir(), "dep-rec-review-"));
+  workDir = mkdtempSync(join(tmpdir(), "drec-review-"));
   storePath = join(workDir, "mcp-store.db");
   copyFileSync(join(REPO_ROOT, "data/store.db"), storePath);
   // This file also calls checkPackage() in-process, not just through a
   // subprocess, so the in-process store has to be redirected too.
-  process.env.DEP_REC_DB_PATH = storePath;
+  process.env.DREC_DB_PATH = storePath;
 });
 
 after(() => {
@@ -193,7 +193,7 @@ describe("#7 prototype-shaped argument keys must be ordinary bad input", () => {
     const stdout = await new Promise<string>((resolve) => {
       const child = spawn(process.execPath, ["--import", "tsx", join(REPO_ROOT, "src/server.ts")], {
         cwd: REPO_ROOT,
-        env: cleanEnv({ DEP_REC_DB_PATH: storePath }),
+        env: cleanEnv({ DREC_DB_PATH: storePath }),
         stdio: ["pipe", "pipe", "ignore"],
       });
       let out = "";
@@ -537,7 +537,7 @@ console.log("WAITED " + (Date.now() - t0));
 `
     );
 
-    const env = cleanEnv({ DEP_REC_DB_PATH: dbFile, ...(timeoutOverride ? { DEP_REC_BUSY_TIMEOUT_MS: timeoutOverride } : {}) });
+    const env = cleanEnv({ DREC_DB_PATH: dbFile, ...(timeoutOverride ? { DREC_BUSY_TIMEOUT_MS: timeoutOverride } : {}) });
     const child = spawn(process.execPath, ["--import", "tsx", script], { stdio: ["ignore", "pipe", "pipe"], env, cwd: REPO_ROOT });
 
     let stdout = "";

@@ -112,10 +112,10 @@ const TOOLS: ToolSpec[] = [
   },
 ];
 
-export const server = createServer({ name: "dep-rec-engine", version: "0.3.0" }, TOOLS);
+export const server = createServer({ name: "drec-engine", version: "0.3.0" }, TOOLS);
 
 // Only start reading stdin when actually run as the server binary. Importing
 // this module for its TOOLS (as the test suite does) must not hijack stdio.
-if (process.env.DEP_REC_NO_LISTEN !== "1") {
+if (process.env.DREC_NO_LISTEN !== "1") {
   server.listen();
 }

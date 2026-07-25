@@ -3,7 +3,7 @@
 ```bash
 npm run stress               # all four phases
 npm run stress -- --phase=a  # one phase
-DEP_REC_STRESS_KEEP=1 npm run stress   # keep the temp stores for inspection
+DREC_STRESS_KEEP=1 npm run stress   # keep the temp stores for inspection
 ```
 
 Not a test suite. A test suite asserts properties that are known in

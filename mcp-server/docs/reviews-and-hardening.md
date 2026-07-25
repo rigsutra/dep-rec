@@ -1,6 +1,6 @@
 # Reviews, stress testing and the bugs they found
 
-`dep-rec` was published early and reviewed hard afterwards. This is the
+`drec` was published early and reviewed hard afterwards. This is the
 record of what those reviews found and what changed, kept in full because
 the failures are more instructive than the features. Nothing here is
 marketing: every item is a thing that was wrong.
@@ -26,7 +26,7 @@ remaining two in `0.1.2`); one was already self-disclosed and unchanged.
    vulnerability list rather than overwriting good data with an empty
    one when a refresh attempt fails.
 3. **Package age was fetched but never used.** Turned into a real
-   feature rather than a scoring input: `check_package`/`dep-rec check`
+   feature rather than a scoring input: `check_package`/`drec check`
    now return `versionGuidance` — recommend the newest version that's at
    least 30 days old (a cooldown/observation window), *unless* a fresher
    release fixes a real vulnerability the older one has. That "unless" is
@@ -132,7 +132,7 @@ fixed; each has a regression test in
    `devDependency` for exactly that purpose.
 
    ```
-   dep-rec@0.2.0
+   drec@0.2.0
    └── (end)
    ```
 
@@ -144,7 +144,7 @@ fixed; each has a regression test in
    `schema.ts` only ran `CREATE TABLE IF NOT EXISTS`, so an existing table
    kept its old columns forever and the first write died with
    `table packages has no column named has_install_scripts` — unhandled,
-   exit code 1. This is a real path, not a hypothetical: `DEP_REC_DB_PATH`
+   exit code 1. This is a real path, not a hypothetical: `DREC_DB_PATH`
    exists precisely so a store can live outside `node_modules`, and such a
    store survives the version bump that `node_modules` doesn't. The column
    set is now declared as data and drives both creation and an additive
@@ -155,7 +155,7 @@ fixed; each has a regression test in
 
 3. **Concurrent lookups died with "database is locked."** No
    `PRAGMA busy_timeout` was set, so SQLite gave up instantly instead of
-   waiting — two `dep-rec check` processes started together, or an agent
+   waiting — two `drec check` processes started together, or an agent
    firing concurrent MCP tool calls, would lose one at random. (The
    reviewer reproduced it twice, hitting a different process each time.)
    Fixed by setting `busy_timeout` *before* switching journal mode — the
@@ -165,7 +165,7 @@ fixed; each has a regression test in
    peer row, now runs in a single transaction instead of taking one write
    lock per row. The test holds a real lock from a second process and
    asserts the contending write waits and succeeds — plus a control case
-   with `DEP_REC_BUSY_TIMEOUT_MS=0` asserting it still fails, so the fix
+   with `DREC_BUSY_TIMEOUT_MS=0` asserting it still fails, so the fix
    is proven load-bearing rather than a timing accident.
 
 4. **A flat download floor silently overrode the typosquat ratio check.**

@@ -1,189 +1,315 @@
-# Dependency Recommendation Engine — prototype
+<h1 align="center">drec</h1>
 
-A deterministic scoring layer that tells AI coding assistants which npm
-package actually fits a given need and environment — not just which name
-they remember from training data. See the full product spec and roadmap
-doc for the vision, data model, and scoring rubric this repo implements
-against.
+<p align="center">
+  <strong>Verify npm packages before an AI assistant talks you into installing one.</strong>
+</p>
 
-## Status
+<p align="center">
+  <a href="https://www.npmjs.com/package/drec"><img src="https://img.shields.io/npm/v/drec.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/drec"><img src="https://img.shields.io/npm/dm/drec.svg" alt="downloads"></a>
+  <img src="https://img.shields.io/badge/dependencies-0-brightgreen.svg" alt="zero dependencies">
+  <a href="https://nodejs.org"><img src="https://img.shields.io/node/v/drec.svg" alt="node version"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/drec.svg" alt="MIT license"></a>
+</p>
 
-Working through the roadmap's proofs, in order:
+An assistant suggests a package; something has to check it against reality
+before it lands in your `package.json`. `drec` answers from the live npm
+registry and OSV with a deterministic score — never from a model's memory of
+what was popular when it was trained.
 
-- [x] **Proof 0** — confirm the Edge Runtime compatibility signal is real
-      ([`proof0/`](proof0))
-- [x] **Proof 1** — collect a searchable, consistent dataset across
-      competing categories ([`stage1-collector/`](stage1-collector))
-- [x] **Proof 2** — rank packages within a category better than raw
-      popularity ([`stage1-collector/src/score.ts`](stage1-collector/src/score.ts))
-- [x] **Proof 3** — wrap it as an MCP tool *and* a CLI, prove both work as a
-      real installed dependency ([`mcp-server/`](mcp-server)) — verified via
-      a real MCP client/server round trip and `npx dep-rec ...` from a
-      separate scratch project ([`example-consumer/`](example-consumer)),
-      generalized with a `check_package`/`dep-rec check` command that scores
-      *any* npm package live, and backed by a persistent store (SQLite)
-      instead of a static snapshot — a package is fetched once, served from
-      storage for everyone after that, and kept fresh by a background
-      refresh job. Not yet wired into a live editor's MCP config, and not
-      published to the public npm registry (private by design — see
-      `mcp-server/README.md`).
-- [ ] Proof 4 — benchmark AI-with-tool vs. AI-without
+Runs as an **MCP server** an assistant calls mid-conversation, and as a plain
+**CLI** for humans, scripts and CI.
 
-## Layout
+## Features
 
-```
-proof0/              Tier 3 signal check — bundles a package the way an edge
-                      bundler would, runs it inside a real @edge-runtime/vm,
-                      reports pass/warn/fail with the actual error.
+- **Catches hallucinated packages** — a real registry 404, reported as such
+- **Catches typosquats that resolve** — `csvparser` vs `csv-parser`, the
+  attack that a 404 check misses entirely
+- **Version-scoped CVE checks** — OSV queried against the *current* version,
+  so long-patched advisories aren't reported as live ones
+- **Flags install scripts** — `preinstall`/`install`/`postinstall`, the
+  event-stream attack vector
+- **Refuses to recommend** deprecated, barely-adopted, brand-new or
+  unmaintained packages, and says which bar was missed
+- **Says "unknown" instead of "clean"** when a lookup fails
+- **Covers all of npm** — ten curated categories, everything else discovered
+  by live search
+- **Zero dependencies**
 
-stage1-collector/     Tier 1 + Tier 2 data collector — builds a ~500-package
-                      dataset across 10 competing categories (auth-jwt,
-                      orm-database, testing, etc.), pulling npm registry
-                      metadata, weekly downloads, and OSV vulnerability data
-                      for each. Output: stage1-collector/data/packages.json.
-                      Also has the scoring engine (src/score.ts) — applies
-                      the deterministic rubric, writes data/scored.json.
+## Install
 
-mcp-server/           Wraps a persistent SQLite-backed store behind two
-                      interfaces sharing the same logic: an MCP server
-                      (list_categories, recommend_package, check_package)
-                      for AI assistants, and a `dep-rec` CLI for humans or
-                      non-MCP-aware scripts/agents. Builds to a real
-                      installable package (two bin entries, bundled
-                      data/store.db). Includes a real test client that
-                      spawns the server over the actual MCP protocol, and
-                      a background refresh worker
-                      (src/store/refresh-worker.ts) that keeps tracked
-                      packages' data from going stale.
-
-example-consumer/     A from-scratch project that installs mcp-server's
-                      packed tarball as a real devDependency and calls
-                      both interfaces (`npx dep-rec ...` and the MCP
-                      client) purely from node_modules/ — proof this
-                      behaves like an actual dependency, not just "runs
-                      from source."
+```bash
+npm install --save-dev drec
 ```
 
-Each subfolder is its own small Node/TypeScript project (own `package.json`,
-run with `npm install && npm run <script>` inside that folder) rather than
-one shared workspace — at this stage they don't share code, and keeping
-them independent makes each one easy to run in isolation.
+Node 22+.
 
-## Data sources used so far
+## Quick start
 
-- `registry.npmjs.org` — package metadata, existence checks, version history
-- `api.npmjs.org` — weekly download counts
-- `api.osv.dev` — known vulnerabilities (batch query)
-- `@edge-runtime/vm` + `esbuild` — real Edge Runtime execution test
+```bash
+npx drec check csvparser
+```
 
-Both npm's search and downloads endpoints throttle after roughly a dozen
-rapid requests from one client — the collector retries with backoff instead
-of silently treating a throttled response as "no data," which was a real bug
-caught during the first run (see [`stage1-collector/README.md`](stage1-collector/README.md)).
+```
+🚨 csvparser  score 46.6  [cache]
+  TYPOSQUAT WARNING: Name is one character away from "csv-parser" (3,288,172 weekly downloads vs. this package's 86) — classic typosquat pattern. Verify this is really the package you meant before installing.
+  license: unknown  maintainers: 1  deps: 0  weekly downloads: 86
+  - no known vulnerabilities affecting the current version
+  - no recent release relative to category peers
+  - single maintainer — bus-factor risk
+  NOT RECOMMENDATION-GRADE — this tool would not put this package forward:
+    - only 86 weekly downloads (recommendation floor is 10,000)
+    - no release in 1503 days (limit is 1000 at this adoption level)
+```
 
-## A second real bug, caught by Proof 2
+```bash
+npx drec check left-pad              # is this safe to install?
+npx drec recommend "jwt library"     # what should I use?
+npx drec recommend "pdf" --limit 3   # works outside the curated set too
+npx drec categories
+```
 
-Scoring surfaced its own bug, not just a weighting problem: querying OSV by
-package name alone returns every vulnerability ever recorded against *any*
-version ever published. `axios` came back with "44 known vulnerabilities" —
-0 of which affect its actual current release. Fixed by scoping every OSV
-query to each package's current latest version. Also fixed: the
-supply-chain sub-score was ranked as a percentile against category peers,
-which zero-sums every framework's score down just for legitimately needing
-more direct dependencies than a single-purpose utility — switched to an
-absolute curve on dependency count instead.
+Scores move with live data, so your numbers won't match the sample exactly —
+and `[cache]` reads `[live-fetch]` the first time a package is seen.
 
-One known, *undecided* tradeoff (not a bug): Compatibility (20% of the
-score) rewards ESM/TypeScript support uniformly, which drags down otherwise
-excellent, actively-patched CJS-only packages (`express`, `jsonwebtoken`,
-`mocha`) relative to modern ESM-native ones (`hono`, `jose`, `jotai`) even
-for plain Node use cases where ESM doesn't actually matter. Worth deciding
-deliberately later, not silently.
+## Use with an AI assistant
 
-## A third real bug, caught while packaging Proof 3
+Add to your assistant's MCP config — Claude Code's `.mcp.json`, Cursor's
+`mcp.json`, or equivalent:
 
-`check_package` makes live outbound HTTPS calls (unlike the other two
-tools, which only read the bundled local dataset) — and it failed with a
-bare `fetch failed` the first time it ran through a real MCP client/server
-subprocess, despite the identical code working fine called directly.
-Cause: the MCP SDK's default environment for a spawned server process on
-Windows is a short allowlist (`APPDATA`, `PATH`, `SYSTEMROOT`, a handful of
-others) that doesn't pass through whatever this machine's network layer
-needs for outbound HTTPS. Fixed by passing `env: process.env` explicitly in
-both test clients — but worth knowing generally: any real MCP host that
-restricts a spawned server's environment will hit the same failure for any
-server that needs real network access, not just this one.
+```json
+{
+  "mcpServers": {
+    "drec": {
+      "command": "npx",
+      "args": ["-y", "-p", "drec", "drec-mcp-server"]
+    }
+  }
+}
+```
 
-## From static snapshot to persistent store
+The `-p drec` matters: the binary is `drec-mcp-server` but the package
+is `drec`, so a bare `npx -y drec-mcp-server` gets a 404. Already
+installed in the project? Use `"command": "node"` with
+`["node_modules/drec/dist/server.js"]` instead.
 
-The original `mcp-server` just read a bundled `scored.json` — fine for the
-curated 500, but wrong for "check any package": every `check_package` call
-would refetch from the live registry, even for a package 99 other people
-had already asked about seconds earlier. `mcp-server/src/store/` replaces
-that with a real SQLite-backed store (`node:sqlite`, no native dependency)
-holding both raw registry/OSV data and computed scores. The actual
-behavior, proved with two genuinely separate spawned processes in
-`example-consumer/test.mjs`: the first lookup of a never-seen package
-returns `servedFrom: "live-fetch"`; a second, fully independent process
-checking the same package gets `servedFrom: "cache"` with identical data —
-zero network calls, because both processes share the same file on disk.
+Then the conversation goes differently:
 
-A package enters the store — and therefore future background refreshing
-via `npm run refresh` — the moment anyone looks it up, whether it's one of
-the curated 500 or a brand-new `check_package` call. This also unified two
-scoring implementations that had started to diverge (the category-relative
-percentile scorer and the absolute-scale live scorer) into one shared
-module (`store/scoring.ts`), since every package now lives in the same
-table regardless of where it came from.
+> **You:** I need to parse CSV in this project.
+>
+> **Assistant** *(calls `recommend_package`)*: `csv-parse` — score 91.4, no
+> known vulnerabilities affecting the current version, ships ESM and
+> TypeScript types. 40 alternatives were excluded for failing the
+> recommendation bar.
+>
+> **You:** What about `csvparser`?
+>
+> **Assistant** *(calls `check_package`)*: Don't. It resolves, but it has 86
+> weekly downloads and its name is one character from `csv-parser`
+> (3.3M/week) — that's the typosquat pattern.
 
-## CLI, sharing the same logic as the MCP server
+### Tools
 
-`mcp-server/src/cli.ts` (`dep-rec` once installed) is a second interface on
-top of the identical `data.ts`/store logic — for humans running it
-directly, or any script/agent that isn't MCP-aware but can shell out to a
-devDependency's bin. One small real bug caught while testing it: the
-default number formatting (`toLocaleString()` with no explicit locale)
-picked up this machine's locale and printed download counts with Indian
-numbering grouping (`23,91,77,371` instead of `239,177,371`) — fixed by
-pinning `"en-US"` explicitly rather than trusting whatever locale the host
-happens to have configured.
+| Tool | Answers | Inputs |
+|---|---|---|
+| `check_package` | *"Is this specific package safe to install?"* Any package on npm. | `name` |
+| `recommend_package` | *"What should I use for X?"* | `need`, `runtime?`, `license?`, `limit?` |
+| `list_categories` | Curated categories and how many packages clear the bar | — |
 
-## Post-publish security review (v0.1.1 → v0.1.2)
+`check_package` is the stronger half and the one to reach for by default:
+verifying a name an assistant already produced is a well-defined question.
+"What should I use for X" is not.
 
-Once `dep-rec` was actually live on the public registry, an external
-review against the shipped source found 8 real issues. All seven real
-ones are now fixed: five in `0.1.1` (a stale "not published yet" doc
-line, OSV checks failing open, package age fetched but unused, supply-chain
-scoring ignoring install scripts, and a transitively pulled-in moderate
-vulnerability via `@hono/node-server` — that last one only partially,
-since the `overrides` fix doesn't propagate to anyone installing `dep-rec`
-as a dependency, verified directly against a clean install in
-`example-consumer`), and the remaining two — no name-similarity typosquat
-detection, and no way to tell a decode-only JWT library from a real auth
-one within a category — in `0.1.2`. The typosquat fix was verified against
-the exact reported case (`check reactt` now correctly flags it as one
-character from `react`, 162M weekly downloads vs. 61); the capability fix
-was verified by confirming `jwt-decode` drops out of the top 5 for "jwt
-library" and `jose` becomes the top pick instead. Full writeup:
-[`mcp-server/README.md`](mcp-server/README.md#post-publish-security-review--v011--v012).
+### What the model receives
 
-## Not yet wired in
+Real output from `check_package` on `csvparser`, unedited:
 
-- GitHub-derived signals (stars, forks, bus factor) — needs an authenticated
-  token to get a usable rate limit at this package count; deliberately left
-  out of v1 rather than blocked on it.
-- deps.dev transitive-dependency and OpenSSF Scorecard enrichment.
-- Tier 3 (Proof 0's edge-runtime check) has not yet been run across the full
-  Proof 1 dataset — it currently only runs against the 6 hand-picked test
-  packages in `proof0/`. The MCP server's `recommend_package` tool returns
-  an explicit caveat when `runtime: "edge"` is requested, rather than
-  silently answering from ESM support alone.
-- The MCP server isn't registered in any live editor/assistant's MCP config
-  yet — that's a config change on your own machine, left as a manual step
-  (see `mcp-server/README.md`) rather than done automatically.
-- `npm run refresh` (the background surveillance job) is a script, not a
-  scheduled one — nothing currently invokes it on a timer. Wiring that up
-  is a deployment decision, not something to bake in silently.
-- `node:sqlite` is still an experimental Node API. Fine for a prototype at
-  this scale; worth revisiting (`better-sqlite3` or similar) before this
-  goes anywhere near production.
+```json
+{
+  "name": "csvparser",
+  "found": true,
+  "servedFrom": "cache",
+  "score": 46.6,
+  "reasons": [
+    "no known vulnerabilities affecting the current version",
+    "no recent release relative to category peers",
+    "single maintainer — bus-factor risk",
+    "no ESM or bundled TS types detected",
+    "zero direct dependencies"
+  ],
+  "npm": {
+    "license": null,
+    "maintainers": 1,
+    "latestVersion": "0.1.4",
+    "dependenciesCount": 0,
+    "deprecated": false
+  },
+  "weeklyDownloads": 86,
+  "typosquatWarning": {
+    "targetPackage": "csv-parser",
+    "targetWeeklyDownloads": 3288172,
+    "reason": "Name is one character away from \"csv-parser\" (3,288,172 weekly downloads vs. this package's 86) — classic typosquat pattern. Verify this is really the package you meant before installing."
+  },
+  "recommendable": false,
+  "notRecommendableBecause": [
+    "only 86 weekly downloads (recommendation floor is 10,000)",
+    "no release in 1503 days (limit is 1000 at this adoption level)"
+  ],
+  "note": "In a known category — this score is ranked against real category competitors."
+}
+```
+
+Note what's absent: no bare boolean verdict to misread. `score` never appears
+without `reasons`; `recommendable: false` never without
+`notRecommendableBecause`. And `deprecated: false` sits right next to
+`recommendable: false`, because those are different claims and the response
+shape shouldn't let a model merge them.
+
+When a lookup fails it returns a `reasonCode`, and only one of them is an
+accusation:
+
+| code | meaning |
+|---|---|
+| `not-found` | real 404 — treat as possibly hallucinated or typosquatted |
+| `invalid-name` | malformed; the registry was never asked |
+| `registry-error` | npm was unreachable; says nothing about the package |
+| `no-manifest` | resolves, but nothing installable |
+
+## CLI reference
+
+```
+drec check <package-name> [--json] [--db <path>]
+drec recommend "<need>" [--runtime node|edge] [--license MIT] [--limit 1-20] [--json] [--db <path>]
+drec categories [--json] [--db <path>]
+```
+
+| Flag | Effect |
+|---|---|
+| `--json` | Machine-readable output instead of the human-readable default |
+| `--limit <1-20>` | How many candidates to return (default 5) |
+| `--runtime node\|edge` | Target runtime; `edge` attaches an explicit not-sandbox-tested caveat |
+| `--license <id>` | Exact license match, e.g. `MIT` |
+| `--db <path>` | Use a different store file (also `DREC_DB_PATH`) |
+
+`check` exits non-zero when a package can't be resolved, so a hallucinated
+name in a PR fails the build.
+
+## How it scores
+
+Five weighted signals, all from live data:
+
+| Signal | Weight | What it measures |
+|---|---|---|
+| Security | 25% | OSV vulnerabilities scoped to the current version |
+| Maintenance | 25% | Release recency, cadence, maintainer count |
+| Compatibility | 20% | ESM and bundled TypeScript types |
+| Community | 20% | Downloads relative to real category competitors |
+| Supply chain | 10% | Dependency count, and install scripts weighted heavily |
+
+Plus **typosquat detection** on names that resolve (edit-distance-1 against
+popular packages, restricted to typo-shaped edits so `next` and `nuxt` aren't
+accused of each other), and **version guidance** — prefer the newest release
+past a 30-day observation window, unless a fresher one demonstrably fixes a
+vulnerability, verified by version-scoped OSV lookups on both.
+
+**A package can be answered for and still not be recommendable.** Deprecated,
+under 10k weekly downloads, under 30 days old, or no release in ~1000 days
+disqualifies it from being *put forward*, while `check_package` still answers
+for it in full. Refusing to answer for obscure packages would defeat the
+point; recommending them would too.
+
+## Coverage
+
+Ten curated categories — auth-jwt, csv-parsing, date-time, http-client,
+logging, orm-database, state-management, testing, validation, web-framework —
+are ranked by percentile against a real competitor set.
+
+Anything else is discovered live: `drec` searches npm, fetches each
+candidate, runs the identical checks, and returns what clears the bar, marked
+`discoveredVia: "npm-search"`.
+
+```
+$ drec recommend "pdf"
+1. @react-pdf/pdfkit  81.4     2. @react-pdf/renderer  90.8
+3. pdf-merger-js      80.8     4. ng2-pdf-viewer       69.6
+```
+
+Discovered results keep **npm's relevance ordering** rather than being
+re-ranked by score — sorting by health promoted internal sub-packages nobody
+installs above the obvious answer. Relevance is npm's job; screening for
+security, maintenance and adoption is this tool's. The first call for a new
+domain is slow; every candidate is stored, so the next one is served from
+disk.
+
+## Why "AI-first"
+
+Not a security scanner with an MCP wrapper bolted on. The design assumes the
+caller is a model, and that changes most decisions:
+
+- **It refuses rather than guesses.** A plausible answer to a question the
+  tool can't answer is worse than useless, because the model can't tell the
+  difference. `recommend "pdf"` once returned `vitest`, `jose`, `hono`,
+  `xstate`, `zod` — ranked, scored, explained, completely wrong. Now an
+  uncovered need is either answered from live search or not answered.
+- **Every miss says why it missed.** Collapsing the four `reasonCode` values
+  into one is how a tool tells a model that every real package is fake during
+  an npm outage.
+- **Scores are deterministic; the model only narrates.** Both tool
+  descriptions instruct it to cite the returned `reasons` and never invent a
+  score.
+- **Unverified is never reported as clean.** A failed OSV lookup returns
+  *unknown*, not "no known vulnerabilities". Same for adoption data.
+- **Output is bounded.** When the consumer is a context window, response size
+  is a correctness property. One corrupt row produced a 216 KB response
+  before that cap existed.
+- **The tool descriptions are part of the product** — long on purpose, and
+  covered by tests.
+
+## Limitations
+
+Documented rather than hidden, because a tool that overstates itself is the
+problem it's trying to solve:
+
+- **`recommend_package` is weaker than `check_package`.** Generic queries can
+  surface vendor-internal libraries that score well but no human would pick
+  (`http client` → `gaxios`). The category matcher is a keyword map, not
+  semantic search.
+- **Abandoned-but-popular packages slip through.** 6 of 24 tested still clear
+  the bar, including `colors` — sabotaged by its own maintainer in 2022 —
+  because none are formally deprecated and all still have large download
+  counts.
+- **24-hour cache window.** A CVE disclosed in the last day can be masked on
+  a cached lookup; `servedFrom` discloses the provenance.
+- **No GitHub signals** (stars, bus factor, archived status) and **no
+  transitive dependency analysis** — direct dependency count only.
+- **Edge Runtime fit is not sandbox-tested.** `runtime: "edge"` returns an
+  explicit caveat rather than answering from ESM support alone.
+- **npm only.** No PyPI, crates.io or Maven.
+- **`node:sqlite` is an experimental Node API**, so this needs Node 22+ and
+  the API may change.
+
+## Documentation
+
+- [Architecture](mcp-server/docs/architecture.md) — the persistent store, scoring
+  internals, the eligibility gate
+- [Development](mcp-server/docs/development.md) — running from source, `npm link`,
+  packing
+- [Reviews and hardening](mcp-server/docs/reviews-and-hardening.md) — every external
+  review finding, the stress harness, and the bugs both found
+- [Tests](mcp-server/tests/README.md) — 428 adversarial scenarios across seven suites
+
+## Repository layout
+
+`drec` is the published package; the rest of this repo is what produced it.
+
+| Directory | What it is |
+|---|---|
+| [`mcp-server/`](mcp-server) | The published package — CLI, MCP server, store, scoring |
+| [`stage1-collector/`](stage1-collector) | Builds the curated category dataset from the npm registry |
+| [`example-consumer/`](example-consumer) | A from-scratch project that installs the packed tarball and drives it, proving it behaves as a real dependency |
+| [`proof0/`](proof0) | The Edge Runtime compatibility spike |
+
+## License
+
+MIT © Ashish Singh ·
+[github.com/AshishPodtech/package_rec](https://github.com/AshishPodtech/package_rec)

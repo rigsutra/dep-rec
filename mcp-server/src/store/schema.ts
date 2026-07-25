@@ -7,7 +7,7 @@
 // forever: `IF NOT EXISTS` sees the table, does nothing, and the first
 // INSERT then dies with "table packages has no column named
 // has_install_scripts" — an unhandled crash, exit code 1. That is a real
-// scenario, not a hypothetical: DEP_REC_DB_PATH exists precisely so people
+// scenario, not a hypothetical: DREC_DB_PATH exists precisely so people
 // can keep a store outside node_modules, and such a store survives the
 // version bump that node_modules doesn't.
 

@@ -6,7 +6,7 @@
 // on stderr the first time `node:sqlite` is touched — which is every single
 // invocation of this tool. It is Node telling *us* that an API we chose is
 // experimental; it is not telling the user anything they can act on, and it
-// is the first thing they see every time they run `dep-rec check`.
+// is the first thing they see every time they run `drec check`.
 //
 // Importing this module first suppresses exactly that one warning. Every
 // other warning — deprecations, unhandled rejections, anything from any

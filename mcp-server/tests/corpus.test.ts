@@ -22,10 +22,10 @@ let categoryKeys: string[] = [];
 let nameDownloads = new Map<string, number>();
 
 before(async () => {
-  const dir = mkdtempSync(join(tmpdir(), "dep-rec-corpus-"));
+  const dir = mkdtempSync(join(tmpdir(), "drec-corpus-"));
   const dbCopy = join(dir, "store.db");
   copyFileSync(join(REPO_ROOT, "data/store.db"), dbCopy);
-  process.env.DEP_REC_DB_PATH = dbCopy;
+  process.env.DREC_DB_PATH = dbCopy;
 
   const db = await import("../src/store/db.js");
   allRows = db.listAll();

@@ -27,7 +27,7 @@ function record(concept: string, isCovered: boolean, detail = "") {
 }
 
 before(async () => {
-  const dir = mkdtempSync(join(tmpdir(), "dep-rec-gaps-"));
+  const dir = mkdtempSync(join(tmpdir(), "drec-gaps-"));
   dbPath = join(dir, "store.db");
   copyFileSync(join(REPO_ROOT, "data/store.db"), dbPath);
   mcp = await openMcp({ dbPath });

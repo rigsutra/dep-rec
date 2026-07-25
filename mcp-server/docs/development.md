@@ -1,9 +1,9 @@
 # Development
 
-Working on `dep-rec` itself: running it from source, linking it locally,
+Working on `drec` itself: running it from source, linking it locally,
 and packing it the way npm would.
 
-## Running the CLI locally as `dep-rec`
+## Running the CLI locally as `drec`
 
 To use the real command name instead of `npx`, link the built package once:
 
@@ -12,19 +12,19 @@ npm run build
 npm link
 ```
 
-`dep-rec` is then on your PATH from any directory. **One trap worth knowing
+`drec` is then on your PATH from any directory. **One trap worth knowing
 about:** a linked install points at this repo's own `data/store.db`, so
 every lookup writes into the artifact that ships inside the package —
-`dep-rec check chalk` from a scratch directory added `chalk` to it as row
+`drec check chalk` from a scratch directory added `chalk` to it as row
 500 the first time this was tried. Use a scratch store while developing:
 
 ```bash
 cp data/store.db /tmp/mystore.db
-dep-rec check express --db /tmp/mystore.db
-dep-rec recommend "pdf" --db /tmp/mystore.db
+drec check express --db /tmp/mystore.db
+drec recommend "pdf" --db /tmp/mystore.db
 ```
 
-`--db` and `DEP_REC_DB_PATH` do the same thing. `npm unlink -g dep-rec`
+`--db` and `DREC_DB_PATH` do the same thing. `npm unlink -g drec`
 removes the link.
 
 ### About the SQLite warning
@@ -85,16 +85,16 @@ would be.
 
 ```bash
 npm run build        # tsc -> dist/, shebang preserved on dist/server.js
-npm pack              # produces dep-rec-0.3.0.tgz — exactly what
+npm pack              # produces drec-0.3.0.tgz — exactly what
                       # `npm publish` would upload, done locally
 ```
 
 Worth noting what that scratch project's own `package.json` now looks like:
-installing `dep-rec` adds **one** package and `npm audit` reports zero
+installing `drec` adds **one** package and `npm audit` reports zero
 findings. `example-consumer` does carry `@modelcontextprotocol/sdk` as its
 own devDependency — it needs a *client* to drive the server
 programmatically — and that reintroduces `GHSA-frvp-7c67-39w9` in the
-example project. That is the cost of the SDK client, not of `dep-rec`, and
+example project. That is the cost of the SDK client, not of `drec`, and
 it is exactly the cost this package no longer passes on. Anyone pointing
 an editor at the MCP server needs no client of their own.
 
@@ -103,7 +103,7 @@ that installs that tarball with `npm install --save-dev <path-to-tgz>` and
 calls all three tools purely from `node_modules/` — no access to this
 monorepo's source. That's the actual proof this behaves like a real
 dependency, not just "runs from source when I `cd` into the right folder."
-The CLI is even simpler to check this way — `npx dep-rec check <name>`
+The CLI is even simpler to check this way — `npx drec check <name>`
 works immediately once installed, no client code needed.
 
 `example-consumer/test.mjs` also proves the store-sharing claim
