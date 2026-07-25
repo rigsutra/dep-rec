@@ -1,0 +1,25 @@
+{
+  "name": "dep-rec-proof0",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Proof 0 - confirm the Edge Runtime compatibility signal is real before building the rest of the dependency recommendation engine.",
+  "scripts": {
+    "check": "tsx src/check-edge.ts"
+  },
+  "dependencies": {
+    "jose": "^5.9.6",
+    "nanoid": "^5.0.9",
+    "zod": "^3.24.1",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
+    "esbuild": "^0.24.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "@types/node": "^22.10.7"
+  }
+}

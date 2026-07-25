@@ -1,0 +1,15 @@
+{
+  "name": "stage1-collector",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Proof 1 - collect Tier 1 + Tier 2 data for ~500 packages across 10 competing categories.",
+  "scripts": {
+    "collect": "tsx src/collect.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "@types/node": "^22.10.7"
+  }
+}

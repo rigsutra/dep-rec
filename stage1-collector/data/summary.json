@@ -1,0 +1,18 @@
+{
+  "totalUniqueCandidates": 499,
+  "resolved": 499,
+  "droppedCount": 0,
+  "dropped": [],
+  "perCategoryCandidateCounts": {
+    "http-client": 50,
+    "web-framework": 50,
+    "auth-jwt": 50,
+    "validation": 50,
+    "orm-database": 50,
+    "logging": 50,
+    "date-time": 50,
+    "csv-parsing": 50,
+    "testing": 50,
+    "state-management": 50
+  }
+}

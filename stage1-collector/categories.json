@@ -1,0 +1,62 @@
+[
+  {
+    "key": "http-client",
+    "label": "HTTP Client",
+    "queries": ["http client", "fetch wrapper", "http request library"],
+    "seeds": ["axios", "node-fetch", "got", "undici", "superagent", "ky", "cross-fetch", "wretch", "needle", "phin"]
+  },
+  {
+    "key": "web-framework",
+    "label": "Web Framework",
+    "queries": ["web framework", "http server framework", "node server framework"],
+    "seeds": ["express", "koa", "fastify", "hapi", "restify", "hono", "polka", "micro", "@nestjs/core"]
+  },
+  {
+    "key": "auth-jwt",
+    "label": "Authentication / JWT",
+    "queries": ["jwt", "authentication middleware", "oauth client"],
+    "seeds": ["jsonwebtoken", "jose", "passport", "next-auth", "express-jwt", "jwt-decode", "openid-client"]
+  },
+  {
+    "key": "validation",
+    "label": "Schema Validation",
+    "queries": ["schema validation", "input validation", "runtime type checking"],
+    "seeds": ["joi", "yup", "zod", "ajv", "superstruct", "io-ts", "class-validator", "valibot"]
+  },
+  {
+    "key": "orm-database",
+    "label": "ORM / Database",
+    "queries": ["orm", "sql query builder", "database client"],
+    "seeds": ["sequelize", "typeorm", "prisma", "mongoose", "knex", "drizzle-orm", "mikro-orm", "better-sqlite3"]
+  },
+  {
+    "key": "logging",
+    "label": "Logging",
+    "queries": ["logger", "logging library"],
+    "seeds": ["winston", "pino", "bunyan", "log4js", "debug", "loglevel", "consola"]
+  },
+  {
+    "key": "date-time",
+    "label": "Date / Time",
+    "queries": ["date time library", "date formatting"],
+    "seeds": ["moment", "dayjs", "date-fns", "luxon", "spacetime", "ms"]
+  },
+  {
+    "key": "csv-parsing",
+    "label": "CSV / Data Parsing",
+    "queries": ["csv parser", "csv parsing"],
+    "seeds": ["papaparse", "csv-parse", "csv-parser", "fast-csv", "csvtojson"]
+  },
+  {
+    "key": "testing",
+    "label": "Testing",
+    "queries": ["testing framework", "assertion library", "mocking library"],
+    "seeds": ["jest", "mocha", "jasmine", "ava", "vitest", "chai", "sinon", "supertest"]
+  },
+  {
+    "key": "state-management",
+    "label": "State Management",
+    "queries": ["state management", "react state management"],
+    "seeds": ["redux", "mobx", "zustand", "recoil", "jotai", "valtio", "xstate", "@reduxjs/toolkit"]
+  }
+]
