@@ -77,9 +77,19 @@ describe("CLI — check", () => {
     const r = await runCli(["check", "dep-rec-test-nope-xyz-000", "--json"], { dbPath });
     assert.equal(r.jsonParseError, undefined);
     assert.equal(r.json.found, false);
-    assert.match(r.json.reason, /does not exist/i);
-    assert.match(r.json.note, /hallucinated|typosquat/i);
     assert.equal(r.json.score, undefined, "an unresolvable package must not carry a score");
+
+    // The hallucination warning is tied to a real 404 and nothing else. If
+    // the registry is unreachable when this runs, the correct answer is
+    // "registry-error" and the warning must be ABSENT — asserting it
+    // unconditionally is what the old, lying implementation would pass.
+    if (r.json.reasonCode === "not-found") {
+      assert.match(r.json.reason, /does not exist/i);
+      assert.match(r.json.note, /hallucinated|typosquat/i);
+    } else {
+      assert.equal(r.json.reasonCode, "registry-error", `unexpected miss code: ${r.json.reasonCode}`);
+      assert.doesNotMatch(r.json.note, /hallucinated|typosquat/i, "an unreachable registry is not evidence of a fake name");
+    }
   });
 
   test("human output for a not-found package is clearly negative", async () => {

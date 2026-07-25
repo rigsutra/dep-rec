@@ -32,10 +32,13 @@ without going through MCP at all.
   their actual category competitors*.
 - **`check_package`** — look up and score **any** npm package by name, not
   limited to the curated set. Served from the store if already tracked and
-  fresh (no network call); fetched live, stored, and scored otherwise. If
-  the name doesn't resolve on the registry at all, that's a strong signal
-  it may be hallucinated or typosquatted — the tool says so explicitly
-  rather than just erroring.
+  fresh (no network call); fetched live, stored, and scored otherwise. A
+  real registry 404 is a strong signal the name may be hallucinated or
+  typosquatted, and the tool says so explicitly rather than just erroring
+  — but only for a genuine 404. Every miss carries a `reasonCode`
+  (`not-found`, `invalid-name`, `registry-error`, `no-manifest`) so a
+  malformed name or an unreachable registry is never mistaken for
+  evidence that a package is fake.
 
 Both scoring tools tell the calling model to cite the returned `reasons`
 and never invent its own score — the scores-are-deterministic-the-LLM-
@@ -59,8 +62,10 @@ data and the computed scores, so:
 
 ```
 src/store/
-  schema.ts           table definition
-  db.ts               raw SQLite access (get/list/upsert)
+  schema.ts           column set as data — drives both CREATE TABLE and the
+                      additive ALTER TABLE migration for older stores
+  db.ts               raw SQLite access (get/list/upsert), busy_timeout,
+                      WAL, transactions
   scoring.ts          the ONE scoring implementation, two modes:
                       category-relative (percentile vs. real peers) and
                       absolute (fixed curves, for uncategorized lookups)
@@ -123,7 +128,7 @@ would be.
 
 ```bash
 npm run build        # tsc -> dist/, shebang preserved on dist/server.js
-npm pack              # produces dep-rec-0.1.0.tgz — exactly what
+npm pack              # produces dep-rec-0.1.3.tgz — exactly what
                       # `npm publish` would upload, done locally
 ```
 
@@ -154,6 +159,15 @@ effect of packaging work. Install it in any project:
 ```bash
 npm install --save-dev dep-rec
 npx dep-rec check left-pad
+```
+
+The MCP SDK and `zod` are **optional** dependencies — only the MCP server
+needs them, and it loads them dynamically. If you only want the CLI, skip
+the whole subtree and get a package with no transitive dependencies at
+all (see finding #1 in the second review below for why that matters):
+
+```bash
+npm install --save-dev dep-rec --omit=optional
 ```
 
 or globally:
@@ -212,31 +226,13 @@ remaining two in `0.1.2`); one was already self-disclosed and unchanged.
    correctly leaves `sharp` unflagged (its current version uses
    prebuilt-binary `optionalDependencies` instead of install scripts, not
    a detection gap).
-5. **Shipped its own flagged vulnerability — partially fixed, and worth
-   being precise about what "fixed" means here.** `GHSA-frvp-7c67-39w9`
-   (moderate, Windows path traversal) comes via `@hono/node-server <2.0.5`,
-   pulled in transitively through `@modelcontextprotocol/sdk` — whose own
-   dependency range (`^1.19.9`, unchanged even in its latest release)
-   can't reach the patched version on its own. Added a package.json
-   `overrides` entry forcing `@hono/node-server` to `^2.0.5`, which makes
-   `npm audit` clean **inside this repo's own `mcp-server/` workspace**.
-
-   That override does **not** propagate to anyone who installs `dep-rec`
-   as a dependency in their own project — `overrides` only affects the
-   project that declares it, not downstream consumers. Verified directly:
-   a clean `npm install` of the published package in `example-consumer`
-   still shows the same advisory. If you want your own `npm audit` clean
-   too, add the same override to your project's `package.json`:
-   ```json
-   "overrides": { "@hono/node-server": "^2.0.5" }
-   ```
-   The more meaningful mitigation: the vulnerable code (Hono's
-   `serve-static` path handling) is never reachable through `dep-rec`'s
-   actual runtime either way, published fix or not — this server only uses
-   the SDK's stdio transport, never the Hono-based HTTP transport that
-   dependency serves. Real fix is upstream, in `@modelcontextprotocol/sdk`
-   bumping its own `@hono/node-server` range; tracking that, not claiming
-   it's fully resolved.
+5. **Shipped its own flagged vulnerability — attempted in `0.1.2` with an
+   `overrides` entry, which turned out to be a no-op; properly addressed
+   in `0.1.3`, see the section below.** `GHSA-frvp-7c67-39w9` (moderate,
+   Windows path traversal) comes via `@hono/node-server <2.0.5`, pulled in
+   transitively through `@modelcontextprotocol/sdk` — whose own dependency
+   range (`^1.19.9`, unchanged in every release up to and including
+   `1.29.0`) cannot reach the patched version at all.
 
 6. **No name-similarity typosquat detection (`0.1.2`).**
    `check_package` only flagged "likely hallucinated or typosquatted" on a
@@ -271,6 +267,160 @@ remaining two in `0.1.2`); one was already self-disclosed and unchanged.
 warning on every invocation, and the 24h cache window meaning a
 just-disclosed CVE can be masked for up to a day on a cached lookup — both
 called out earlier in this README as known, accepted tradeoffs.
+
+## Second review — v0.1.2 → v0.1.3
+
+A second external review, this time run against the **published** `0.1.2`
+package rather than the source, found six more. It also built a standalone
+stress harness that drove the real MCP binary over stdio, hammered the
+store from multiple processes at once, and fuzzed CLI argv. All six are
+fixed; each has a regression test in
+[`tests/review-findings.test.ts`](tests/review-findings.test.ts)
+(`npm run test:review`).
+
+1. **The `overrides` "fix" was a no-op.** `0.1.2` added
+   `"overrides": {"@hono/node-server": "^2.0.5"}` to its *own*
+   package.json to patch `GHSA-frvp-7c67-39w9`. npm only honours
+   `overrides` from the root project; inside a dependency it is ignored.
+   The reviewer verified it directly — `npm ls @hono/node-server` still
+   showed the vulnerable `1.19.15` after installing `0.1.2`. For a package
+   whose entire pitch is "install me as a dependency," that fixed nothing
+   for anybody.
+
+   There is no dependency-resolution fix available: the advisory is fixed
+   only in `2.0.5`, `@modelcontextprotocol/sdk` pins `^1.19.9`, and no
+   published SDK release has moved that range. What a package *can* do is
+   stop forcing the subtree on people who don't need it. The SDK and `zod`
+   are now **optional** dependencies, loaded dynamically, used by nothing
+   except `src/server.ts`:
+
+   ```bash
+   npm install -D dep-rec --omit=optional   # zero-dependency CLI
+   ```
+
+   A default install is unchanged, so `npx dep-rec-mcp-server` still works
+   with no extra steps. Verified end-to-end against the real `0.1.3`
+   tarball in a scratch project: `npm install -D <tgz> --omit=optional`
+   reports *"added 1 package… found 0 vulnerabilities"*, `npm ls --all`
+   shows both optional deps UNMET, nothing but `dep-rec` is actually on
+   disk, `npx dep-rec check left-pad` works normally, and
+   `node node_modules/dep-rec/dist/server.js` exits with the actionable
+   message above rather than a module-resolution stack trace.
+
+   One caveat, since the point of this entry is not to overclaim again: a
+   **bare** `npm audit` still reports the advisory even with the packages
+   absent, because it audits the lockfile's full dependency graph rather
+   than what is on disk. `npm audit --omit=optional` reports zero, and so
+   does a plain `npm audit` once `omit=optional` is in the project's
+   `.npmrc`. So: the vulnerable code is genuinely never installed, and the
+   audit *report* needs that one flag to agree.
+
+   The misleading `overrides` entry is gone, and a test asserts it stays
+   gone, that nothing reachable from `cli.ts` imports either optional
+   dependency, and that the package declares no hard runtime dependencies.
+
+2. **A store from an older release crashed instead of migrating.**
+   `schema.ts` only ran `CREATE TABLE IF NOT EXISTS`, so an existing table
+   kept its old columns forever and the first write died with
+   `table packages has no column named has_install_scripts` — unhandled,
+   exit code 1. This is a real path, not a hypothetical: `DEP_REC_DB_PATH`
+   exists precisely so a store can live outside `node_modules`, and such a
+   store survives the version bump that `node_modules` doesn't. The column
+   set is now declared as data and drives both creation and an additive
+   `ALTER TABLE` migration on open. Tested against a database built with
+   the genuine `0.1.0` schema: columns are added, existing rows keep their
+   values, new columns backfill from their defaults, and reopening is a
+   no-op.
+
+3. **Concurrent lookups died with "database is locked."** No
+   `PRAGMA busy_timeout` was set, so SQLite gave up instantly instead of
+   waiting — two `dep-rec check` processes started together, or an agent
+   firing concurrent MCP tool calls, would lose one at random. (The
+   reviewer reproduced it twice, hitting a different process each time.)
+   Fixed by setting `busy_timeout` *before* switching journal mode — the
+   `PRAGMA journal_mode = WAL` statement takes a lock itself, so a timeout
+   applied afterwards would miss the one statement most likely to collide
+   on a cold concurrent start. Category rescoring, which rewrites every
+   peer row, now runs in a single transaction instead of taking one write
+   lock per row. The test holds a real lock from a second process and
+   asserts the contending write waits and succeeds — plus a control case
+   with `DEP_REC_BUSY_TIMEOUT_MS=0` asserting it still fails, so the fix
+   is proven load-bearing rather than a timing accident.
+
+4. **A flat download floor silently overrode the typosquat ratio check.**
+   A squat with 5 weekly downloads against `parcel`'s ~410k — an ~82,000x
+   ratio, 800x past the threshold — returned `suspicious: false`, purely
+   because 410k is under the flat 1,000,000 absolute floor. `parcel`,
+   `gatsby` and `angular` are all on the hand-curated "worth squatting"
+   list *and* all under that floor, so the list was silently exempting the
+   names it exists to protect. The floor now depends on how the target was
+   recognised: 50k for a hand-curated name (we have already asserted it is
+   a recognisable target), 1M for a name merely present in the store
+   (which deliberately tracks obscure packages, some with double-digit
+   download counts). The ratio requirement is unchanged, and candidates
+   are ranked by how far past *their own* floor they sit, so a big-but-
+   ineligible store name can't shadow a curated target that qualifies.
+
+5. **An invalid `--limit` returned an empty list instead of an error.**
+   `--limit banana` became `NaN` and `--limit 0` stayed `0`; both sliced
+   the ranking to nothing and printed `"recommendations": []` — which
+   reads as "no package fits your need," the single worst answer a
+   recommendation tool can give to a malformed question. Both interfaces
+   now reject it: the CLI with a usage error naming the flag, the shared
+   core with a `RangeError` for any non-integer or out-of-range value.
+
+6. **A malformed name was reported as "does not exist."** A 5000-character
+   name got a `400` from the registry, which was then relabelled
+   *"does not exist… likely hallucinated or typosquatted"* — the registry
+   rejected the request shape, it never answered the question. Worse than
+   the reported case: the same note covered *every* non-404 failure, so a
+   registry outage would have branded every real package in a project as
+   possibly fake. Lookups now carry a `reasonCode` — `not-found`,
+   `invalid-name`, `registry-error`, `no-manifest` — and only a genuine
+   404 carries the hallucination warning. Names are validated against
+   npm's own rule (a segment must survive `encodeURIComponent` unchanged,
+   which keeps legacy-but-real shapes like `JSONStream` valid) before any
+   request is made. Also fixed alongside it: `name.replace("/", "%2F")`
+   escaped only the *first* slash, so `@scope/name/extra` built a
+   malformed registry URL — that shape is now rejected as invalid, and the
+   escape uses `replaceAll` regardless.
+
+### Two more, found while fixing those six
+
+Both surfaced from a single intermittent test failure — the sort of thing
+that is tempting to re-run until it goes green:
+
+- **An unreachable downloads endpoint crashed every lookup.**
+  `fetchWeeklyDownloads` throwing propagated straight out through
+  `checkTyposquat` and `check_package` to the caller, so a partial npm
+  outage took down the whole tool rather than degrading one advisory
+  signal. A target whose popularity can't be determined is now skipped:
+  detection goes quiet, and missing data can never produce an accusation.
+- **Three tests were asserting the old lie.** They required a nonexistent
+  package to report *"does not exist"* unconditionally — which the fixed
+  code correctly refuses to say when the registry is unreachable. They
+  now assert the real property, an *iff*: the hallucination warning
+  appears exactly when the registry returned 404, and never otherwise.
+  That version of the test is both network-independent and strictly
+  stronger; the old one would have passed on the buggy code.
+
+There was also a flaw in the new concurrency test itself: the lock holder
+released on a timer, and under full-suite load spawning the contending
+process took longer than the hold, so the two never actually collided.
+The holder now keeps the lock until explicitly told to let go, the writer
+announces itself before blocking, and the test asserts it genuinely
+waited — a version that can't pass by accident.
+
+**Confirmed good by the same review, worth recording:** every malformed
+input thrown at the MCP tools (negative/zero/float/huge/string limits,
+missing fields, wrong types, `null`, arrays, a `__proto__` key) came back
+as a clean `isError: true` tool response rather than a crash; and SQL
+injection, null bytes, path traversal, homoglyphs, emoji and a 5000-char
+name all round-tripped safely, since the store uses parameterised queries
+throughout. The CLI "failures" the harness flagged for unknown
+subcommands, missing arguments and an invalid `--runtime` were correct
+usage errors, not bugs — its blanket "non-zero exit = flag" rule was too
+blunt.
 
 ## To actually point a live assistant at it
 
@@ -361,13 +511,14 @@ visible rather than silent.
 ## Tests
 
 ```bash
-npm test            # all six suites
-npm run test:cli    # the CLI surface on its own
-npm run test:mcp    # the MCP protocol surface on its own
-npm run test:gaps   # what the spec claimed but was never built
+npm test             # all seven suites
+npm run test:cli     # the CLI surface on its own
+npm run test:mcp     # the MCP protocol surface on its own
+npm run test:gaps    # what the spec claimed but was never built
+npm run test:review  # regressions for every externally-reported finding
 ```
 
-372 adversarial scenarios across >1000 packages, using `node:test` only (no
+411 adversarial scenarios across >1000 packages, using `node:test` only (no
 framework dependency). Every suite runs against a temp copy of the store, so
 tests can never corrupt the shipped `data/store.db`.
 
@@ -376,7 +527,7 @@ from unparseable registry timestamps, identical packages scoring 0/50/100
 because percentile ranks were assigned by sort index, two legitimate packages
 (`rest`, `js-logger`) branded typosquats, a known typosquat (`reactt`) that had
 been committed into the shipped store database, `check typescript` recommending
-`7.0.1-rc` as its "battle-tested" pick, and **211 of 499 curated packages
+`7.0.1-rc` as its "battle-tested" pick, and **192 of 499 curated packages
 failing a basic recommendation bar** — including entries with 2–6 weekly
 downloads and several packages abandoned for 4+ years. Full inventory and
 the reasoning behind each: [`tests/README.md`](tests/README.md).

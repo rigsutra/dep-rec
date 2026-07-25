@@ -5,13 +5,13 @@
 // out to a devDependency's bin.
 
 import { parseArgs } from "node:util";
-import { listCategories, recommend, checkPackage } from "./data.js";
+import { listCategories, recommend, checkPackage, MAX_LIMIT } from "./data.js";
 
 const HELP = `dep-rec — dependency recommendation CLI
 
 Usage:
   dep-rec check <package-name> [--json]
-  dep-rec recommend "<need>" [--runtime node|edge] [--license MIT] [--limit N] [--json]
+  dep-rec recommend "<need>" [--runtime node|edge] [--license MIT] [--limit 1-20] [--json]
   dep-rec categories [--json]
 
 Examples:
@@ -84,11 +84,25 @@ async function runRecommend(rest: string[]): Promise<void> {
     fail(`--runtime must be "node" or "edge", got "${values.runtime}"`);
   }
 
+  // `--limit banana` used to become NaN and `--limit 0` stayed 0; both then
+  // sliced the ranking to nothing and printed an empty list, which reads as
+  // "no package fits your need" rather than "you passed a bad flag".
+  let limit: number | undefined;
+  if (values.limit !== undefined) {
+    if (!/^\d+$/.test(values.limit)) {
+      fail(`--limit must be a whole number between 1 and ${MAX_LIMIT}, got "${values.limit}"`);
+    }
+    limit = Number(values.limit);
+    if (limit < 1 || limit > MAX_LIMIT) {
+      fail(`--limit must be between 1 and ${MAX_LIMIT}, got ${limit}`);
+    }
+  }
+
   const result = await recommend({
     need,
     runtime: values.runtime as "node" | "edge" | undefined,
     license: values.license,
-    limit: values.limit ? Number(values.limit) : undefined,
+    limit,
   });
 
   printJsonOr(values.json, result, () => {

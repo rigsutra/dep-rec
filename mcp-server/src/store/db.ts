@@ -7,20 +7,56 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { SCHEMA_SQL } from "./schema.js";
+import { SCHEMA_SQL, migratePackagesTable } from "./schema.js";
 
 // Overridable so tests (and anyone wanting a separate store per project)
 // don't mutate the store.db that ships inside the package.
 const DB_PATH = process.env.DEP_REC_DB_PATH ?? fileURLToPath(new URL("../../data/store.db", import.meta.url));
 
+// How long a statement waits for another process to release the write lock
+// before giving up with SQLITE_BUSY. Without this, SQLite fails instantly:
+// two `dep-rec check` processes started at the same time, or an MCP client
+// firing concurrent tool calls, would have one of them die with "database
+// is locked" — a real, reproducible race, not a theoretical one. WAL lets
+// readers run concurrently with a writer, but writers still serialise, so
+// something has to be willing to wait.
+const BUSY_TIMEOUT_MS = Number(process.env.DEP_REC_BUSY_TIMEOUT_MS ?? 10_000);
+
 let dbInstance: DatabaseSync | null = null;
 function getDb(): DatabaseSync {
   if (!dbInstance) {
-    dbInstance = new DatabaseSync(DB_PATH);
-    dbInstance.exec("PRAGMA journal_mode = WAL;");
-    dbInstance.exec(SCHEMA_SQL);
+    const db = new DatabaseSync(DB_PATH);
+    // Set before anything else: switching journal mode itself takes a lock,
+    // so a busy_timeout applied afterwards would be too late to protect the
+    // one statement most likely to collide on a cold concurrent start.
+    db.exec(`PRAGMA busy_timeout = ${Number.isFinite(BUSY_TIMEOUT_MS) ? Math.max(0, BUSY_TIMEOUT_MS) : 10_000};`);
+    db.exec("PRAGMA journal_mode = WAL;");
+    db.exec(SCHEMA_SQL);
+    migratePackagesTable(db);
+    dbInstance = db;
   }
   return dbInstance;
+}
+
+// Groups a batch of writes into one transaction. Rescoring a category
+// rewrites every peer row; as individual statements that is N separate
+// write locks and N fsyncs, giving a concurrent process N chances to
+// collide. One transaction holds the lock once, briefly.
+export function withTransaction<T>(fn: () => T): T {
+  const db = getDb();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = fn();
+    db.exec("COMMIT");
+    return result;
+  } catch (err) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // A rollback failure must not mask the original error.
+    }
+    throw err;
+  }
 }
 
 export interface PackageRow {

@@ -239,7 +239,9 @@ describe("Ecosystem and scope boundaries the spec claimed", () => {
     // only exists there must not return an npm lookalike as if it were it.
     for (const name of ["requests", "flask", "serde", "tokio"]) {
       const r = await mcp.call("check_package", { name });
-      if (r.json.found) {
+      // A registry outage yields a non-JSON error body; that says nothing
+      // about ecosystem confusion, so it is not this test's business.
+      if (r.json?.found) {
         // These names DO exist on npm as unrelated packages — the danger is a
         // caller assuming ecosystem. The tool must at least not claim a
         // non-npm ecosystem.

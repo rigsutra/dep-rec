@@ -2,6 +2,10 @@ import { listAllCategoryCounts, listByCategory, listAll, listNameDownloads } fro
 import { getOrFetchPackage } from "./store/lookup.js";
 import { checkTyposquat } from "./store/typosquat.js";
 import { checkRecommendable, isRecommendable } from "./store/eligibility.js";
+import type { RegistryMissCode } from "./sources/npm.js";
+
+export const DEFAULT_LIMIT = 5;
+export const MAX_LIMIT = 20;
 
 // Crude free-text -> category mapping. A real version would need fuzzy
 // matching against package descriptions (not collected yet) or embeddings;
@@ -86,7 +90,22 @@ export interface RecommendResult {
   note?: string;
 }
 
+// An out-of-range limit used to flow straight into `.slice(0, limit)`, so
+// `--limit 0` and `--limit banana` (NaN) both returned an empty
+// recommendations array — indistinguishable from "nothing matches your
+// need." For a tool whose whole job is telling a caller which package to
+// use, silently answering "none" to a malformed question is the worst
+// possible failure mode. Throw instead; every caller surfaces it.
+export function normalizeLimit(limit: number | undefined): number {
+  if (limit === undefined) return DEFAULT_LIMIT;
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
+    throw new RangeError(`limit must be a whole number between 1 and ${MAX_LIMIT}, got ${JSON.stringify(limit)}`);
+  }
+  return limit;
+}
+
 export async function recommend(input: RecommendInput): Promise<RecommendResult> {
+  const limit = normalizeLimit(input.limit);
   const categoryKeys = listAllCategoryCounts().map((c) => c.key);
   const matched = matchCategory(input.need, categoryKeys);
 
@@ -115,7 +134,7 @@ export async function recommend(input: RecommendInput): Promise<RecommendResult>
   const ranked = candidates
     .slice()
     .sort((a, b) => (b.score_total ?? 0) - (a.score_total ?? 0))
-    .slice(0, input.limit ?? 5)
+    .slice(0, limit)
     .map((p) => ({
       package: p.name,
       score: p.score_total ?? 0,
@@ -140,6 +159,8 @@ export interface CheckPackageResult {
   name: string;
   found: boolean;
   reason?: string;
+  /** Present only when found is false. Lets a caller branch on *why* without parsing prose. */
+  reasonCode?: RegistryMissCode;
   inCuratedDataset: boolean;
   servedFrom?: "cache" | "live-fetch";
   score?: number;
@@ -166,6 +187,23 @@ export interface CheckPackageResult {
   note: string;
 }
 
+// Only a genuine 404 is evidence about a name's authenticity. The other
+// three outcomes previously produced the same "likely hallucinated or
+// typosquatted" note, which is wrong in two different directions: a
+// malformed name means the registry was never asked, and a registry error
+// means it refused to answer — during an npm outage that note would have
+// branded every real package in a project as possibly fake.
+const MISS_NOTES: Record<RegistryMissCode, string> = {
+  "not-found":
+    "This package does not resolve on the npm registry. If this name came from a suggestion rather than a known dependency, treat it as a likely hallucinated or typosquatted name and verify before installing anything.",
+  "invalid-name":
+    "This is not a well-formed npm package name, so the registry was never queried. That is a problem with the string that was passed, NOT evidence about whether any real package exists — do not report this as 'the package does not exist'. Fix the name and check again.",
+  "registry-error":
+    "The npm registry could not be reached or returned an error, so nothing is known about this name either way. This is NOT a 404 and NOT evidence the package is missing or fake. Retry before drawing any conclusion, and do not tell the user a package is unsafe on the strength of this.",
+  "no-manifest":
+    "The name exists on the registry but has no usable latest-version manifest — typically an unpublished, reserved, or placeholder record. Treat it as not installable, which is not the same as the name being fake.",
+};
+
 // Live, on-demand check for ANY package name — not just the curated 500.
 // Backed by the persistent store: a package already checked recently is
 // served straight from disk (servedFrom: "cache", zero network calls); a
@@ -176,12 +214,14 @@ export async function checkPackage(name: string): Promise<CheckPackageResult> {
   const result = await getOrFetchPackage(name);
 
   if (!result.found) {
+    const code = result.code ?? "not-found";
     return {
       name,
       found: false,
       reason: result.reason,
+      reasonCode: code,
       inCuratedDataset: false,
-      note: "This package does not resolve on the npm registry. If this name came from a suggestion rather than a known dependency, treat it as a likely hallucinated or typosquatted name and verify before installing anything.",
+      note: MISS_NOTES[code],
     };
   }
 

@@ -144,7 +144,24 @@ export interface TyposquatCheck {
   reason?: string;
 }
 
+// A target has to be worth squatting before a near-miss name means
+// anything: two obscure packages one typo apart is a coincidence, not an
+// attack. But a single flat floor turned out to silently gut the ratio
+// check. `parcel` sits at ~410k weekly downloads — unmistakably a name
+// worth impersonating, and hand-listed above as exactly that — yet a squat
+// of it with 5 downloads (an ~82,000x ratio) was waved through purely
+// because 410k < 1,000,000. Same for `gatsby` and `angular`. The absolute
+// cutoff was overriding the signal it was supposed to support.
+//
+// So the floor now depends on how the target was recognised:
+//   - hand-curated above: we have already asserted this is a recognisable
+//     name an attacker would target, so a much lower floor applies;
+//   - merely present in our store: the store deliberately tracks obscure
+//     packages (that is what check_package is for, and some entries have
+//     double-digit download counts), so those need real popularity before
+//     they can be treated as a squat target at all.
 const MIN_TARGET_DOWNLOADS = 1_000_000;
+const MIN_CURATED_TARGET_DOWNLOADS = 50_000;
 const MIN_RATIO = 100;
 
 // Short names are inherently one edit from many other short names (`qs`/`ws`,
@@ -152,6 +169,21 @@ const MIN_RATIO = 100;
 // candidates produces false positives on packages that have done nothing
 // wrong. Real typosquats target recognisable, longer names.
 const MIN_CANDIDATE_LENGTH = 4;
+
+// A name already in the store costs nothing to look up. Anything else needs
+// the network — and that call must never be allowed to take down the whole
+// check. Typosquat detection is one advisory signal among several; if the
+// downloads endpoint is unreachable, the right outcome is "no opinion",
+// not an exception thrown out through check_package to the caller.
+async function targetDownloads(target: string, storeDownloads: Map<string, number>): Promise<number | null> {
+  const stored = storeDownloads.get(target);
+  if (stored !== undefined) return stored;
+  try {
+    return await fetchWeeklyDownloads(target);
+  } catch {
+    return null;
+  }
+}
 
 export async function checkTyposquat(
   name: string,
@@ -179,14 +211,22 @@ export async function checkTyposquat(
   }
   if (candidateTargets.size === 0) return { suspicious: false };
 
-  let best: { name: string; downloads: number } | null = null;
+  let best: { name: string; downloads: number; floor: number } | null = null;
   for (const target of candidateTargets) {
-    const downloads = storeDownloads.get(target) ?? (await fetchWeeklyDownloads(target));
-    if (!best || downloads > best.downloads) best = { name: target, downloads };
+    const downloads = await targetDownloads(target, storeDownloads);
+    // Unknown popularity means this candidate cannot be judged. Skipping it
+    // is the only safe choice: guessing high would invent an accusation,
+    // and there is nothing to compare a ratio against.
+    if (downloads === null) continue;
+    const floor = knownSet.has(target) ? MIN_CURATED_TARGET_DOWNLOADS : MIN_TARGET_DOWNLOADS;
+    // Rank by how far past its own floor a candidate is, not by raw
+    // downloads — otherwise a big-but-ineligible store name can shadow a
+    // curated target that actually qualifies.
+    if (!best || downloads / floor > best.downloads / best.floor) best = { name: target, downloads, floor };
   }
   if (!best) return { suspicious: false };
 
-  if (best.downloads >= MIN_TARGET_DOWNLOADS && best.downloads >= weeklyDownloads * MIN_RATIO) {
+  if (best.downloads >= best.floor && best.downloads >= weeklyDownloads * MIN_RATIO) {
     return {
       suspicious: true,
       targetPackage: best.name,

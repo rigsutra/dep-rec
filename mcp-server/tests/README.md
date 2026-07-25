@@ -2,15 +2,16 @@
 
 Adversarial by design. The goal is not to demonstrate that the code works —
 it is to find the places where it lies, crashes, or quietly does the wrong
-thing. Six suites, 372 scenarios, >1000 packages exercised.
+thing. Seven suites, 411 scenarios, >1000 packages exercised.
 
 ```bash
-npm test            # everything
-npm run test:unit   # pure logic, no network
-npm run test:corpus # every package in the shipped store + 600 generated rows
-npm run test:cli    # the CLI as its own product surface
-npm run test:mcp    # the MCP server at the protocol level
-npm run test:gaps   # concepts from the spec that were never implemented
+npm test             # everything
+npm run test:unit    # pure logic, no network
+npm run test:corpus  # every package in the shipped store + 600 generated rows
+npm run test:cli     # the CLI as its own product surface
+npm run test:mcp     # the MCP server at the protocol level
+npm run test:gaps    # concepts from the spec that were never implemented
+npm run test:review  # every externally-reported finding, as a regression
 ```
 
 No test framework dependency — `node:test` and `node:assert` only, matching
@@ -33,6 +34,7 @@ added for exactly this reason — the path used to be hardcoded.)
 | `cli.test.ts` | Argument parsing, exit codes, stream discipline, `--json` parseability, locale independence, path traversal and SQL injection through argv |
 | `mcp.test.ts` | Protocol handshake, schema validation, tool *descriptions* as contract, concurrency, cross-process store sharing, CLI/MCP parity |
 | `adversarial-gaps.test.ts` | Concepts the spec claimed but that were never built — asserts the tool never overclaims, and prints a coverage inventory |
+| `review-findings.test.ts` | Every finding from an external review, reproduced as a regression: dependency shape, legacy-store migration, write-lock contention, typosquat floors, limit validation, lookup-miss classification |
 
 ## The rule the gap suite follows
 
@@ -98,6 +100,61 @@ All of these were real, in shipped or about-to-ship code, and are now fixed:
    downloads and had not released in 810 days, which reads as stable rather
    than abandoned, so a higher limit applies above 5M downloads. The
    recommendable set and the typosquat-flagged set are now asserted disjoint.
+
+## Findings this suite did not catch
+
+`review-findings.test.ts` exists because a second external review, run
+against the **published** `0.1.2` package rather than the source, found six
+things these suites missed. Worth being specific about *why* they were
+missed, since that is the more useful lesson than the fixes:
+
+1. **The `overrides` no-op** — no test ever asserted anything about the
+   shape of `package.json`. A fix that lives in metadata needs a test that
+   reads metadata.
+2. **No schema migration** — every suite copies `data/store.db`, which is
+   always current. Nothing ever opened a store written by an *older*
+   version, so the one code path that crashes was the one path never
+   exercised.
+3. **`database is locked`** — `mcp.test.ts` tested concurrency within one
+   process and cross-process store *sharing*, but never cross-process
+   store *contention*. Two readers sharing a file is not the same test as
+   two writers racing for it.
+4. **The typosquat download floor** — the detector was tested for recall
+   against known squats and precision against legitimate neighbours, both
+   using targets far above the floor. No test varied the target's
+   popularity, so a threshold that silently swallowed the ratio signal
+   looked identical to one that worked.
+5. **`--limit` validation** — the CLI suite asserted exit codes and JSON
+   parseability. An empty-but-valid result is both of those things.
+6. **Miss classification** — tests asserted that a nonexistent package is
+   reported as nonexistent. None asserted the *converse*: that a
+   non-404 failure is **not** reported that way.
+
+The pattern in all six: every one is a case where the wrong behaviour
+still produced a well-formed, plausible response. Asserting "it didn't
+crash and the shape is right" cannot catch those.
+
+Two further bugs came out of one intermittent failure in the combined run,
+which is the argument against re-running until green:
+
+9. **An unreachable downloads endpoint crashed every lookup.** A rejected
+   `fetch` in `fetchWeeklyDownloads` propagated out through
+   `checkTyposquat` and `check_package` to the caller, so a partial npm
+   outage took the whole tool down instead of silencing one advisory
+   signal. A target whose popularity can't be determined is now skipped.
+10. **Three tests were asserting the old lie.** They required a
+    nonexistent package to report *"does not exist"* unconditionally —
+    which the fixed code correctly refuses to say when the registry is
+    unreachable. Rewritten as an *iff* (the hallucination warning appears
+    exactly when the registry returned 404), which is network-independent
+    and would have failed on the old, lying implementation.
+
+And one flaw in this suite's own new concurrency test: the lock holder
+released on a timer, so under full-suite load the contending process took
+longer to spawn than the hold lasted and the two never collided — the
+control case failed and the positive case would have passed while proving
+nothing. The holder now holds until told to release, the writer announces
+itself before blocking, and the test asserts it actually waited.
 
 ## Known-wrong things the suite deliberately does not assert away
 

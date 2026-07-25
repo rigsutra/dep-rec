@@ -3,8 +3,8 @@
 // — see refresh-worker.ts) the moment anyone looks it up, whether that's a
 // curated seed package or a one-off check_package call.
 
-import { getPackage, listByCategory, upsertRaw, upsertScore, upsertVersionGuidance, type PackageRow } from "./db.js";
-import { fetchPackageDoc, fetchWeeklyDownloads } from "../sources/npm.js";
+import { getPackage, listByCategory, upsertRaw, upsertScore, upsertVersionGuidance, withTransaction, type PackageRow } from "./db.js";
+import { fetchPackageDoc, fetchWeeklyDownloads, type RegistryMissCode } from "../sources/npm.js";
 import { queryVulnerabilities } from "../sources/osv.js";
 import { scoreCategoryGroup, scoreAbsolute } from "./scoring.js";
 import { resolveRecommendedVersion } from "./version-safety.js";
@@ -20,9 +20,14 @@ const STALE_MS = 24 * 60 * 60 * 1000;
 export function rescoreCategory(category: string): void {
   const peers = listByCategory(category);
   const scores = scoreCategoryGroup(peers);
-  for (const [name, score] of scores) {
-    upsertScore(name, { ...score, method: "category-relative" });
-  }
+  // One transaction rather than one write lock per peer — a category can be
+  // 50+ rows, and holding the lock once is both faster and far less likely
+  // to collide with a concurrent process.
+  withTransaction(() => {
+    for (const [name, score] of scores) {
+      upsertScore(name, { ...score, method: "category-relative" });
+    }
+  });
 }
 
 function rescoreRow(row: PackageRow): void {
@@ -36,9 +41,12 @@ function rescoreRow(row: PackageRow): void {
   }
 }
 
-async function fetchAndStore(name: string, existing: PackageRow | null): Promise<{ found: true; row: PackageRow } | { found: false; reason: string }> {
+async function fetchAndStore(
+  name: string,
+  existing: PackageRow | null
+): Promise<{ found: true; row: PackageRow } | { found: false; reason: string; code: RegistryMissCode }> {
   const doc = await fetchPackageDoc(name);
-  if (!doc.found) return { found: false, reason: doc.reason };
+  if (!doc.found) return { found: false, reason: doc.reason, code: doc.code };
 
   const [weeklyDownloads, vulnResult] = await Promise.all([
     fetchWeeklyDownloads(name),
@@ -91,6 +99,8 @@ export interface LookupResult {
   found: boolean;
   row?: PackageRow;
   reason?: string;
+  /** Present only when found is false — why the lookup produced nothing. */
+  code?: RegistryMissCode;
   servedFrom?: "cache" | "live-fetch";
 }
 
@@ -103,7 +113,7 @@ export async function getOrFetchPackage(name: string): Promise<LookupResult> {
   }
 
   const result = await fetchAndStore(name, existing);
-  if (!result.found) return { found: false, reason: result.reason };
+  if (!result.found) return { found: false, reason: result.reason, code: result.code };
   return { found: true, row: result.row, servedFrom: "live-fetch" };
 }
 
@@ -112,6 +122,6 @@ export async function getOrFetchPackage(name: string): Promise<LookupResult> {
 export async function forceRefreshPackage(name: string): Promise<LookupResult> {
   const existing = getPackage(name);
   const result = await fetchAndStore(name, existing);
-  if (!result.found) return { found: false, reason: result.reason };
+  if (!result.found) return { found: false, reason: result.reason, code: result.code };
   return { found: true, row: result.row, servedFrom: "live-fetch" };
 }

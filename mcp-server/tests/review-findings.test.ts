@@ -1,0 +1,534 @@
+// Regression suite for the six findings from the second external review of
+// the published package. Each test reproduces the reviewer's scenario as
+// closely as it can be reproduced in-repo, so a future change that
+// reintroduces any of them fails here rather than in someone's project.
+//
+// Numbering matches the review.
+
+import { test, describe, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
+import { spawn } from "node:child_process";
+import { mkdtempSync, copyFileSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { REPO_ROOT, runCli, openMcp, cleanEnv } from "./helpers.js";
+import { PACKAGES_COLUMNS } from "../src/store/schema.js";
+import { checkTyposquat } from "../src/store/typosquat.js";
+import { normalizeLimit, MAX_LIMIT, checkPackage } from "../src/data.js";
+import { validatePackageName, fetchPackageDoc } from "../src/sources/npm.js";
+
+let workDir: string;
+
+before(() => {
+  workDir = mkdtempSync(join(tmpdir(), "dep-rec-review-"));
+});
+
+after(() => {
+  // The store keeps -wal/-shm siblings and Windows holds handles briefly;
+  // a failed cleanup must not fail the suite.
+  try {
+    rmSync(workDir, { recursive: true, force: true });
+  } catch {
+    /* temp dir, the OS will get it */
+  }
+});
+
+// ---------------------------------------------------------------------------
+// #1 — the `overrides` entry was a no-op for consumers
+// ---------------------------------------------------------------------------
+
+describe("#1 transitive advisory: the fix must not be a no-op", () => {
+  const pkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
+
+  test("no `overrides` field is published", () => {
+    // npm ignores `overrides` inside a dependency's package.json. Shipping
+    // one made the package look like it had patched GHSA-frvp-7c67-39w9 for
+    // its consumers when it had patched nothing outside this repo.
+    assert.equal(
+      pkg.overrides,
+      undefined,
+      "`overrides` in a published package.json only affects this repo and misleads anyone reading it as a fix"
+    );
+  });
+
+  test("the MCP SDK subtree is opt-out-able", () => {
+    assert.ok(pkg.optionalDependencies?.["@modelcontextprotocol/sdk"], "SDK must be an optionalDependency");
+    assert.ok(pkg.optionalDependencies?.zod, "zod must be an optionalDependency");
+    assert.equal(pkg.dependencies, undefined, "nothing may be a hard runtime dependency");
+  });
+
+  test("nothing reachable from the CLI imports the SDK or zod", () => {
+    // This is what makes --omit=optional a real answer rather than a
+    // suggestion: the CLI has to still work with that subtree absent.
+    const seen = new Set<string>();
+    const offenders: string[] = [];
+
+    const walk = (file: string): void => {
+      if (seen.has(file) || !existsSync(file)) return;
+      seen.add(file);
+      const src = readFileSync(file, "utf8");
+      for (const m of src.matchAll(/(?:^|\n)\s*import\s+(?:type\s+)?[^"']*from\s+["']([^"']+)["']/g)) {
+        const spec = m[1];
+        if (spec.startsWith(".")) {
+          walk(join(file, "..", spec.replace(/\.js$/, ".ts")));
+        } else if (spec === "zod" || spec.startsWith("@modelcontextprotocol/")) {
+          // A type-only import is erased at runtime and is therefore safe.
+          if (!/import\s+type\s/.test(m[0])) offenders.push(`${file} -> ${spec}`);
+        }
+      }
+    };
+
+    walk(join(REPO_ROOT, "src/cli.ts"));
+    assert.deepEqual(offenders, [], "the CLI graph must stay free of optional dependencies");
+    assert.ok(seen.size > 5, `expected to walk the real graph, only saw ${seen.size} files`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2 — a store created by an older release crashed instead of migrating
+// ---------------------------------------------------------------------------
+
+// The genuine 0.1.0 column set: no has_install_scripts, no
+// security_check_failed, no recommended_version, no version_guidance.
+const LEGACY_0_1_0_SCHEMA = `
+CREATE TABLE packages (
+  name TEXT PRIMARY KEY,
+  categories TEXT NOT NULL DEFAULT '[]',
+  license TEXT,
+  maintainers INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT,
+  modified_at TEXT,
+  latest_version TEXT,
+  dependencies_count INTEGER NOT NULL DEFAULT 0,
+  deprecated INTEGER NOT NULL DEFAULT 0,
+  esm_support INTEGER NOT NULL DEFAULT 0,
+  typescript_support INTEGER NOT NULL DEFAULT 0,
+  release_cadence_days REAL,
+  weekly_downloads INTEGER NOT NULL DEFAULT 0,
+  vulnerability_ids TEXT NOT NULL DEFAULT '[]',
+  raw_fetched_at TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL,
+  score_total REAL,
+  score_security REAL,
+  score_maintenance REAL,
+  score_compatibility REAL,
+  score_community REAL,
+  score_supply_chain REAL,
+  score_reasons TEXT NOT NULL DEFAULT '[]',
+  score_method TEXT,
+  score_computed_at TEXT
+);
+`;
+
+function buildLegacyStore(file: string): void {
+  const db = new DatabaseSync(file);
+  db.exec(LEGACY_0_1_0_SCHEMA);
+  db.exec(
+    `INSERT INTO packages (name, categories, raw_fetched_at, first_seen_at, weekly_downloads, score_total, score_reasons)
+     VALUES ('left-pad', '["testing"]', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 500000, 42.0, '[]')`
+  );
+  db.close();
+}
+
+describe("#2 legacy store must migrate, not crash", () => {
+  test("opening a 0.1.0-schema store adds every missing column", async () => {
+    const file = join(workDir, "legacy-read.db");
+    buildLegacyStore(file);
+
+    const res = await runCli(["categories", "--json"], { dbPath: file });
+    assert.equal(res.code, 0, `expected clean exit, got ${res.code}\n${res.stderr}`);
+    assert.ok(!/no column named/i.test(res.stderr), res.stderr);
+
+    const db = new DatabaseSync(file);
+    const present = new Set(
+      (db.prepare("PRAGMA table_info(packages)").all() as Array<{ name: string }>).map((r) => r.name)
+    );
+    db.close();
+
+    const missing = PACKAGES_COLUMNS.map((c) => c.name).filter((n) => !present.has(n));
+    assert.deepEqual(missing, [], "migration left columns behind");
+  });
+
+  test("pre-existing rows survive the migration with their data intact", async () => {
+    const file = join(workDir, "legacy-data.db");
+    buildLegacyStore(file);
+    await runCli(["categories", "--json"], { dbPath: file });
+
+    const db = new DatabaseSync(file);
+    const row = db.prepare("SELECT * FROM packages WHERE name = 'left-pad'").get() as any;
+    db.close();
+
+    assert.equal(row.weekly_downloads, 500000, "existing data must not be reset by the migration");
+    assert.equal(row.score_total, 42.0);
+    // Added NOT NULL columns must backfill from their declared default.
+    assert.equal(row.has_install_scripts, 0);
+    assert.equal(row.security_check_failed, 0);
+    assert.equal(row.recommended_version, null);
+  });
+
+  test("migration is idempotent", async () => {
+    const file = join(workDir, "legacy-twice.db");
+    buildLegacyStore(file);
+    const first = await runCli(["categories", "--json"], { dbPath: file });
+    const second = await runCli(["categories", "--json"], { dbPath: file });
+    assert.equal(first.code, 0, first.stderr);
+    assert.equal(second.code, 0, `second open must be a no-op, got:\n${second.stderr}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #3 — concurrent access died with "database is locked"
+// ---------------------------------------------------------------------------
+
+describe("#3 concurrent store access must wait, not fail", () => {
+  // Contention has to be *guaranteed*, not hoped for. An earlier version of
+  // this had the holder release on a timer, which made both tests unsound
+  // under load: spawning a tsx child can take seconds, by which point the
+  // timer had already fired and there was no lock left to contend with —
+  // the control case then failed, and the positive case would have passed
+  // without ever proving anything. So the holder now keeps the lock until
+  // it is explicitly told to let go, and the writer announces itself on
+  // stdout immediately before it blocks.
+  interface Holder {
+    release(): void;
+    kill(): void;
+  }
+
+  function spawnLockHolder(dbFile: string): Promise<Holder> {
+    const script = join(workDir, "hold-lock.mjs");
+    writeFileSync(
+      script,
+      `import { DatabaseSync } from "node:sqlite";
+const db = new DatabaseSync(${JSON.stringify(dbFile)});
+db.exec("PRAGMA busy_timeout = 30000;");
+db.exec("PRAGMA journal_mode = WAL;");
+db.exec("BEGIN IMMEDIATE");
+db.prepare("UPDATE packages SET score_total = score_total WHERE name = 'left-pad'").run();
+console.log("LOCKED");
+process.stdin.resume();
+process.stdin.once("data", () => { db.exec("COMMIT"); db.close(); process.exit(0); });
+`
+    );
+
+    return new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [script], { stdio: ["pipe", "pipe", "pipe"], env: cleanEnv() });
+      const timer = setTimeout(() => reject(new Error("lock holder never reported LOCKED")), 30_000);
+      child.stdout.on("data", (d) => {
+        if (String(d).includes("LOCKED")) {
+          clearTimeout(timer);
+          resolve({
+            release: () => child.stdin.write("go\n"),
+            kill: () => child.kill(),
+          });
+        }
+      });
+      child.on("error", reject);
+    });
+  }
+
+  interface WriteAttempt {
+    code: number | null;
+    stderr: string;
+    waitedMs: number;
+    /** Resolves once the child is about to issue the blocking write. */
+    started: Promise<void>;
+  }
+
+  function writeInChild(dbFile: string, value: number, timeoutOverride?: string): WriteAttempt {
+    const script = join(workDir, `write-${value}.mjs`);
+    writeFileSync(
+      script,
+      `const { upsertScore } = await import(${JSON.stringify(
+        "file:///" + join(REPO_ROOT, "src/store/db.ts").replaceAll("\\", "/")
+      )});
+// Touch the store first so connection setup (open, pragmas, migration) is
+// done before the announcement — otherwise "STARTING" would be printed
+// before the work that itself needs the lock.
+const { getPackage } = await import(${JSON.stringify(
+        "file:///" + join(REPO_ROOT, "src/store/db.ts").replaceAll("\\", "/")
+      )});
+getPackage("left-pad");
+console.log("STARTING");
+const t0 = Date.now();
+upsertScore("left-pad", { total: ${value}, security: 1, maintenance: 1, compatibility: 1, community: 1, supplyChain: 1, reasons: [], method: "absolute" });
+console.log("WAITED " + (Date.now() - t0));
+`
+    );
+
+    const env = cleanEnv({ DEP_REC_DB_PATH: dbFile, ...(timeoutOverride ? { DEP_REC_BUSY_TIMEOUT_MS: timeoutOverride } : {}) });
+    const child = spawn(process.execPath, ["--import", "tsx", script], { stdio: ["ignore", "pipe", "pipe"], env, cwd: REPO_ROOT });
+
+    let stdout = "";
+    let stderr = "";
+    let announce: () => void;
+    const started = new Promise<void>((res) => (announce = res));
+    child.stdout.on("data", (c) => {
+      stdout += c;
+      if (stdout.includes("STARTING")) announce();
+    });
+    child.stderr.on("data", (c) => (stderr += c));
+
+    const done = new Promise<{ code: number | null }>((res) => child.on("close", (code) => res({ code })));
+
+    // The object is filled in as the child progresses; callers await
+    // `started` before releasing the lock and `finished` before asserting.
+    const attempt = { code: null as number | null, stderr: "", waitedMs: -1, started } as WriteAttempt & { finished: Promise<void> };
+    attempt.finished = done.then(({ code }) => {
+      attempt.code = code;
+      attempt.stderr = stderr;
+      // A child killed before it announced never reaches the timer.
+      attempt.waitedMs = Number(/WAITED (\d+)/.exec(stdout)?.[1] ?? -1);
+      announce(); // unblock anyone still waiting if the child died early
+    });
+    return attempt;
+  }
+
+  test("a write blocked by another process waits for the lock instead of dying", async () => {
+    const file = join(workDir, "contended.db");
+    buildLegacyStore(file);
+    await runCli(["categories", "--json"], { dbPath: file }); // migrate first
+
+    const holder = await spawnLockHolder(file);
+    const attempt = writeInChild(file, 77) as WriteAttempt & { finished: Promise<void> };
+    await attempt.started;
+
+    // Hold the lock a little longer so the write is provably blocked, then
+    // let go and confirm it went through rather than erroring out.
+    await new Promise((r) => setTimeout(r, 600));
+    holder.release();
+    await attempt.finished;
+    holder.kill();
+
+    assert.equal(attempt.code, 0, `contending write should have waited and succeeded:\n${attempt.stderr}`);
+    assert.ok(!/database is locked/i.test(attempt.stderr), attempt.stderr);
+    assert.ok(
+      attempt.waitedMs >= 250,
+      `the write must actually have blocked on the lock, but returned in ${attempt.waitedMs}ms — the test proved nothing`
+    );
+  });
+
+  test("the busy timeout is what makes that work (control case)", async () => {
+    // Without it, SQLite gives up instantly — this is the reviewer's exact
+    // failure, and asserting it here proves the fix above is load-bearing
+    // rather than an accident of timing. The lock is held for the whole
+    // lifetime of the child, so there is no window in which this can pass
+    // by luck.
+    const file = join(workDir, "contended-control.db");
+    buildLegacyStore(file);
+    await runCli(["categories", "--json"], { dbPath: file });
+
+    const holder = await spawnLockHolder(file);
+    const attempt = writeInChild(file, 88, "0") as WriteAttempt & { finished: Promise<void> };
+    await attempt.finished;
+    holder.release();
+    holder.kill();
+
+    assert.notEqual(attempt.code, 0, "with busy_timeout=0 the contending write is expected to fail");
+    assert.match(attempt.stderr, /database is locked/i);
+  });
+
+  test("several processes reading the same store concurrently all succeed", async () => {
+    const file = join(workDir, "concurrent-read.db");
+    copyFileSync(join(REPO_ROOT, "data/store.db"), file);
+
+    const runs = await Promise.all([
+      runCli(["categories", "--json"], { dbPath: file }),
+      runCli(["categories", "--json"], { dbPath: file }),
+      runCli(["recommend", "csv parser", "--json"], { dbPath: file }),
+      runCli(["recommend", "jwt library", "--json"], { dbPath: file }),
+      runCli(["categories", "--json"], { dbPath: file }),
+      runCli(["recommend", "logging", "--json"], { dbPath: file }),
+    ]);
+
+    for (const [i, r] of runs.entries()) {
+      assert.equal(r.code, 0, `process ${i} failed (${r.code}):\n${r.stderr}`);
+      assert.ok(!/database is locked/i.test(r.stderr), `process ${i}: ${r.stderr}`);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #4 — an absolute download floor silently overrode the ratio check
+// ---------------------------------------------------------------------------
+
+describe("#4 typosquat floor must not exempt curated targets", () => {
+  // Real numbers from the review: parcel sits well under the old flat 1M
+  // floor, so an 82,000x-ratio squat of it was waved through.
+  const PARCEL = 409_799;
+
+  test("a squat of a curated target under 1M downloads is flagged", async () => {
+    const store = new Map<string, number>([["parcel", PARCEL]]);
+    const res = await checkTyposquat("parcell", 5, store);
+    assert.equal(res.suspicious, true, "deletion/insertion squat of parcel must be caught");
+    assert.equal(res.targetPackage, "parcel");
+  });
+
+  test("the same holds for the other curated names the review named", async () => {
+    for (const [target, downloads] of [
+      ["gatsby", 300_000],
+      ["angular", 250_000],
+    ] as const) {
+      const store = new Map<string, number>([[target, downloads]]);
+      const res = await checkTyposquat(target + target.slice(-1), 4, store);
+      assert.equal(res.suspicious, true, `${target} should be protected at ${downloads} downloads`);
+    }
+  });
+
+  test("a non-curated store name still needs real popularity to be a target", async () => {
+    // The store deliberately tracks obscure packages; two of those one edit
+    // apart is a coincidence, not an attack, and must not be flagged.
+    const store = new Map<string, number>([["obscure-thing", 60_000]]);
+    const res = await checkTyposquat("obscure-things", 5, store);
+    assert.equal(res.suspicious, false, "a 60k-download non-curated name is not a squat target");
+  });
+
+  test("the ratio requirement still applies to curated targets", async () => {
+    const store = new Map<string, number>([["parcel", PARCEL]]);
+    // Candidate is nearly as popular as the target -> not a squat.
+    const res = await checkTyposquat("parcell", PARCEL / 2, store);
+    assert.equal(res.suspicious, false, "a comparably-popular neighbour is not a squat");
+  });
+
+  test("an unreachable downloads endpoint yields no opinion, not an exception", async () => {
+    // Surfaced while chasing an intermittent CI failure: an unreachable
+    // api.npmjs.org threw straight out through check_package, so a partial
+    // npm outage took down every lookup rather than degrading one advisory
+    // signal. Detection is allowed to go quiet; the call is not allowed to
+    // die, and it is certainly not allowed to accuse on missing data.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (() => Promise.reject(new TypeError("fetch failed"))) as unknown as typeof fetch;
+    try {
+      const res = await checkTyposquat("reactt", 10, new Map());
+      assert.equal(res.suspicious, false, "unknown target popularity must never produce an accusation");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test("a curated target that has collapsed to nothing protects nobody", async () => {
+    const store = new Map<string, number>([["browserify", 900]]);
+    const res = await checkTyposquat("browserifyy", 5, store);
+    assert.equal(res.suspicious, false, "below even the curated floor there is no target worth squatting");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #5 — an invalid --limit produced an empty list instead of an error
+// ---------------------------------------------------------------------------
+
+describe("#5 invalid limit must be an error, never an empty result", () => {
+  for (const bad of [0, -1, -5, 2.7, Number.NaN, Number.POSITIVE_INFINITY, 1e9, MAX_LIMIT + 1]) {
+    test(`normalizeLimit rejects ${JSON.stringify(bad)}`, () => {
+      assert.throws(() => normalizeLimit(bad), RangeError);
+    });
+  }
+
+  test("normalizeLimit accepts the documented range", () => {
+    assert.equal(normalizeLimit(undefined), 5);
+    assert.equal(normalizeLimit(1), 1);
+    assert.equal(normalizeLimit(MAX_LIMIT), MAX_LIMIT);
+  });
+
+  for (const bad of ["banana", "0", "-5", "2.7", "1e9", "999", ""]) {
+    test(`CLI --limit ${JSON.stringify(bad)} exits non-zero with a message about the flag`, async () => {
+      const res = await runCli(["recommend", "csv parser", "--limit", bad, "--json"]);
+      assert.notEqual(res.code, 0, `--limit ${bad} was accepted; stdout was:\n${res.stdout}`);
+      assert.match(res.stderr, /limit/i);
+      assert.ok(
+        !/"recommendations":\s*\[\s*\]/.test(res.stdout),
+        "must not print an empty recommendation list for a bad flag"
+      );
+    });
+  }
+
+  test("MCP rejects an out-of-range limit rather than returning nothing", async () => {
+    const mcp = await openMcp();
+    try {
+      for (const bad of [0, -5, 2.7, 1e9]) {
+        const res = await mcp.call("recommend_package", { need: "csv parser", limit: bad });
+        assert.equal(res.isError, true, `limit ${bad} should be a protocol-level error`);
+      }
+    } finally {
+      await mcp.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #6 — a malformed name was reported as "does not exist"
+// ---------------------------------------------------------------------------
+
+describe("#6 a lookup miss must say which kind of miss it was", () => {
+  test("real names, including legacy shapes, stay valid", () => {
+    for (const name of ["react", "@types/node", "left-pad", "JSONStream", "a.b.c", "x-y_z", "@scope/a.b-c"]) {
+      assert.equal(validatePackageName(name).valid, true, `${name} must be accepted`);
+    }
+  });
+
+  test("structurally impossible names are rejected before any network call", () => {
+    for (const name of ["", " ", "x".repeat(5000), "@scope/name/extra", "has space", ".dot", "_under", "no/slash"]) {
+      assert.equal(validatePackageName(name).valid, false, `${JSON.stringify(name.slice(0, 20))} must be rejected`);
+    }
+  });
+
+  test("an oversized name is reported as malformed, not as nonexistent", async () => {
+    const doc = await fetchPackageDoc("x".repeat(5000));
+    assert.equal(doc.found, false);
+    assert.equal(doc.found === false && doc.code, "invalid-name");
+    assert.match(doc.found === false ? doc.reason : "", /214/);
+  });
+
+  test("the malformed-name note never claims the package is hallucinated", async () => {
+    const result = await checkPackage("@scope/name/extra");
+    assert.equal(result.found, false);
+    assert.equal(result.reasonCode, "invalid-name");
+    // Only the accusation matters. The note is allowed to say "do not
+    // report this as 'the package does not exist'" — that phrase appearing
+    // inside its own prohibition is the opposite of the bug.
+    assert.ok(
+      !/hallucinat|typosquat/i.test(result.note),
+      `an unasked question cannot have that answer; note was:\n${result.note}`
+    );
+    assert.match(result.note, /never queried/i, "the note must say the registry was not consulted");
+  });
+
+  test("the hallucination warning appears if and only if the registry returned 404", async () => {
+    // Stated as an iff so it holds with or without a reachable network. A
+    // registry outage during this test is not a failure — it is the second
+    // half of the property, and the half the old code got wrong.
+    const result = await checkPackage("this-package-truly-does-not-exist-9e3f1a7c");
+    assert.equal(result.found, false);
+    assert.ok(
+      ["not-found", "registry-error"].includes(result.reasonCode!),
+      `unexpected miss code: ${result.reasonCode}`
+    );
+    assert.equal(
+      /hallucinated or typosquatted/i.test(result.note),
+      result.reasonCode === "not-found",
+      `the warning must track the 404 exactly; code was ${result.reasonCode} and note was:\n${result.note}`
+    );
+  });
+
+  test("the MCP tool description tells the model how to read reasonCode", async () => {
+    // The distinction is worthless if the model reading the response has not
+    // been told that only one of the four codes is an accusation.
+    const mcp = await openMcp();
+    try {
+      const { tools } = await mcp.listTools();
+      const d = tools.find((t: any) => t.name === "check_package").description as string;
+      assert.match(d, /reasonCode/, "the model needs to know the field exists");
+      assert.match(d, /registry-error/, "must name the outage case explicitly");
+      assert.match(d, /never be reported as/i, "must forbid reporting an outage as nonexistence");
+    } finally {
+      await mcp.close();
+    }
+  });
+
+  test("a multi-slash name cannot build a registry URL at all", () => {
+    // The old `name.replace("/", "%2F")` escaped only the first slash, so
+    // "@scope/name/extra" produced a malformed request path.
+    assert.equal(validatePackageName("@scope/name/extra").valid, false);
+    assert.equal(validatePackageName("a/b/c").valid, false);
+  });
+});
