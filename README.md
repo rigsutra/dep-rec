@@ -88,9 +88,10 @@ Add to your assistant's MCP config — Claude Code's `.mcp.json`, Cursor's
 }
 ```
 
-The `-p drec` matters: the binary is `drec-mcp-server` but the package
-is `drec`, so a bare `npx -y drec-mcp-server` gets a 404. Already
-installed in the project? Use `"command": "node"` with
+The `-p drec` matters: the binary is `drec-mcp-server` but the
+package is `drec`, so a bare `npx -y drec-mcp-server` would look
+for a package by that name and 404. Already installed in the project? Use
+`"command": "node"` with
 `["node_modules/drec/dist/server.js"]` instead.
 
 Then the conversation goes differently:
