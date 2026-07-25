@@ -33,17 +33,17 @@ function loadSqlite(): SqliteModule {
 // directly opened the SHIPPED database no matter what it set afterwards, and
 // merely opening a SQLite file in WAL mode rewrites its header.
 function resolveDbPath(): string {
-  return process.env.DREC_DB_PATH ?? fileURLToPath(new URL("../../data/store.db", import.meta.url));
+  return process.env.DEP_REC_DB_PATH ?? fileURLToPath(new URL("../../data/store.db", import.meta.url));
 }
 
 // How long a statement waits for another process to release the write lock
 // before giving up with SQLITE_BUSY. Without this, SQLite fails instantly:
-// two `drec check` processes started at the same time, or an MCP client
+// two `dep-rec check` processes started at the same time, or an MCP client
 // firing concurrent tool calls, would have one of them die with "database
 // is locked" — a real, reproducible race, not a theoretical one. WAL lets
 // readers run concurrently with a writer, but writers still serialise, so
 // something has to be willing to wait.
-const BUSY_TIMEOUT_MS = Number(process.env.DREC_BUSY_TIMEOUT_MS ?? 10_000);
+const BUSY_TIMEOUT_MS = Number(process.env.DEP_REC_BUSY_TIMEOUT_MS ?? 10_000);
 
 let dbInstance: DatabaseSync | null = null;
 function getDb(): DatabaseSync {

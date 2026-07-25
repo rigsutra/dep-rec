@@ -28,12 +28,12 @@ let workDir: string;
 let storePath: string;
 
 before(() => {
-  workDir = mkdtempSync(join(tmpdir(), "drec-review-"));
+  workDir = mkdtempSync(join(tmpdir(), "dep-rec-review-"));
   storePath = join(workDir, "mcp-store.db");
   copyFileSync(join(REPO_ROOT, "data/store.db"), storePath);
   // This file also calls checkPackage() in-process, not just through a
   // subprocess, so the in-process store has to be redirected too.
-  process.env.DREC_DB_PATH = storePath;
+  process.env.DEP_REC_DB_PATH = storePath;
 });
 
 after(() => {
@@ -50,8 +50,9 @@ after(() => {
 // #1 — the `overrides` entry was a no-op for consumers
 // ---------------------------------------------------------------------------
 
+const pkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
+
 describe("#1 transitive advisory: the fix must not be a no-op", () => {
-  const pkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
 
   test("no `overrides` field is published", () => {
     // npm ignores `overrides` inside a dependency's package.json. Shipping
@@ -193,7 +194,7 @@ describe("#7 prototype-shaped argument keys must be ordinary bad input", () => {
     const stdout = await new Promise<string>((resolve) => {
       const child = spawn(process.execPath, ["--import", "tsx", join(REPO_ROOT, "src/server.ts")], {
         cwd: REPO_ROOT,
-        env: cleanEnv({ DREC_DB_PATH: storePath }),
+        env: cleanEnv({ DEP_REC_DB_PATH: storePath }),
         stdio: ["pipe", "pipe", "ignore"],
       });
       let out = "";
@@ -212,6 +213,19 @@ describe("#7 prototype-shaped argument keys must be ordinary bad input", () => {
 
   test("nothing in the payloads reaches Object.prototype", () => {
     assert.equal(({} as any).polluted, undefined, "Object.prototype was polluted by the test payloads");
+  });
+
+  test("the server reports the package's real version", async () => {
+    // It used to be a hardcoded literal, and it drifted: the package was
+    // bumped to 0.3.1 while every MCP client was still told 0.3.0.
+    const mcp = await openMcp({ dbPath: storePath });
+    try {
+      const info = (mcp.raw as { getServerVersion(): { name: string; version: string } }).getServerVersion();
+      assert.equal(info.version, pkg.version, "advertised version must track package.json");
+      assert.equal(info.name, "dep-rec-engine");
+    } finally {
+      await mcp.close();
+    }
   });
 
   test("a well-formed call still works after the sweep", async () => {
@@ -537,7 +551,7 @@ console.log("WAITED " + (Date.now() - t0));
 `
     );
 
-    const env = cleanEnv({ DREC_DB_PATH: dbFile, ...(timeoutOverride ? { DREC_BUSY_TIMEOUT_MS: timeoutOverride } : {}) });
+    const env = cleanEnv({ DEP_REC_DB_PATH: dbFile, ...(timeoutOverride ? { DEP_REC_BUSY_TIMEOUT_MS: timeoutOverride } : {}) });
     const child = spawn(process.execPath, ["--import", "tsx", script], { stdio: ["ignore", "pipe", "pipe"], env, cwd: REPO_ROOT });
 
     let stdout = "";

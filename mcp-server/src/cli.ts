@@ -9,21 +9,21 @@ import "./quiet-sqlite-warning.js";
 import { parseArgs } from "node:util";
 import { listCategories, recommend, checkPackage, MAX_LIMIT } from "./data.js";
 
-const HELP = `drec — dependency recommendation CLI
+const HELP = `dep-rec — dependency recommendation CLI
 
 Usage:
-  drec check <package-name> [--json] [--db <path>]
-  drec recommend "<need>" [--runtime node|edge] [--license MIT] [--limit 1-20] [--json] [--db <path>]
-  drec categories [--json] [--db <path>]
+  dep-rec check <package-name> [--json] [--db <path>]
+  dep-rec recommend "<need>" [--runtime node|edge] [--license MIT] [--limit 1-20] [--json] [--db <path>]
+  dep-rec categories [--json] [--db <path>]
 
 Examples:
-  drec check left-pad
-  drec recommend "jwt library" --runtime edge
-  drec recommend "csv parser" --limit 3 --json
+  dep-rec check left-pad
+  dep-rec recommend "jwt library" --runtime edge
+  dep-rec recommend "csv parser" --limit 3 --json
 
 Options:
   --db <path>   Use a different store file instead of the one inside the
-                installed package. Also settable as DREC_DB_PATH. Worth
+                installed package. Also settable as DEP_REC_DB_PATH. Worth
                 using while developing against a linked checkout, otherwise
                 every lookup writes into the repo's own data/store.db.
 `;
@@ -31,7 +31,7 @@ Options:
 // Must be applied before anything touches the store, which resolves this
 // lazily on first use.
 function applyDbOverride(dbPath: string | undefined): void {
-  if (dbPath) process.env.DREC_DB_PATH = dbPath;
+  if (dbPath) process.env.DEP_REC_DB_PATH = dbPath;
 }
 
 function fail(message: string): never {
@@ -51,7 +51,7 @@ async function runCheck(rest: string[]): Promise<void> {
   });
   applyDbOverride(values.db);
   const name = positionals[0];
-  if (!name) fail('Usage: drec check <package-name> [--json]');
+  if (!name) fail('Usage: dep-rec check <package-name> [--json]');
 
   const result = await checkPackage(name);
 
@@ -96,7 +96,7 @@ async function runRecommend(rest: string[]): Promise<void> {
   });
   applyDbOverride(values.db);
   const need = positionals.join(" ");
-  if (!need) fail('Usage: drec recommend "<need>" [--runtime node|edge] [--license MIT] [--limit N] [--json]');
+  if (!need) fail('Usage: dep-rec recommend "<need>" [--runtime node|edge] [--license MIT] [--limit N] [--json]');
   if (values.runtime && values.runtime !== "node" && values.runtime !== "edge") {
     fail(`--runtime must be "node" or "edge", got "${values.runtime}"`);
   }

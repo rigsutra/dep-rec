@@ -4,7 +4,7 @@
 
 const REGISTRY = "https://registry.npmjs.org";
 const DOWNLOADS = "https://api.npmjs.org/downloads/point/last-week";
-const UA = "drec-mcp-server/0.2 (live package check)";
+const UA = "dep-rec-mcp-server/0.2 (live package check)";
 
 // Measured, not guessed: a 269-lookup burst at concurrency 6 against
 // api.npmjs.org left 20% of download counts unresolved. Every one of those
@@ -33,7 +33,7 @@ const BASE_BACKOFF_MS = 400;
 // package count, which is why a plausible-looking fixed rate still got
 // throttled.) So the spacing adapts: it widens on every 429 and decays back
 // while requests are succeeding.
-const BASE_SPACING_MS = Number(process.env.DREC_DOWNLOADS_SPACING_MS ?? 60);
+const BASE_SPACING_MS = Number(process.env.DEP_REC_DOWNLOADS_SPACING_MS ?? 60);
 const MAX_SPACING_MS = 3_000;
 let currentSpacing = Number.isFinite(BASE_SPACING_MS) ? Math.max(0, BASE_SPACING_MS) : 60;
 let pacingChain: Promise<void> = Promise.resolve();

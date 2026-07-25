@@ -1,19 +1,19 @@
-<h1 align="center">drec</h1>
+<h1 align="center">dep-rec</h1>
 
 <p align="center">
   <strong>Verify npm packages before an AI assistant talks you into installing one.</strong>
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/drec"><img src="https://img.shields.io/npm/v/drec.svg" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/drec"><img src="https://img.shields.io/npm/dm/drec.svg" alt="downloads"></a>
+  <a href="https://www.npmjs.com/package/dep-rec"><img src="https://img.shields.io/npm/v/dep-rec.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/dep-rec"><img src="https://img.shields.io/npm/dm/dep-rec.svg" alt="downloads"></a>
   <img src="https://img.shields.io/badge/dependencies-0-brightgreen.svg" alt="zero dependencies">
-  <a href="https://nodejs.org"><img src="https://img.shields.io/node/v/drec.svg" alt="node version"></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/drec.svg" alt="MIT license"></a>
+  <a href="https://nodejs.org"><img src="https://img.shields.io/node/v/dep-rec.svg" alt="node version"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/dep-rec.svg" alt="MIT license"></a>
 </p>
 
 An assistant suggests a package; something has to check it against reality
-before it lands in your `package.json`. `drec` answers from the live npm
+before it lands in your `package.json`. `dep-rec` answers from the live npm
 registry and OSV with a deterministic score — never from a model's memory of
 what was popular when it was trained.
 
@@ -39,7 +39,7 @@ Runs as an **MCP server** an assistant calls mid-conversation, and as a plain
 ## Install
 
 ```bash
-npm install --save-dev drec
+npm install --save-dev dep-rec
 ```
 
 Node 22+.
@@ -47,7 +47,7 @@ Node 22+.
 ## Quick start
 
 ```bash
-npx drec check csvparser
+npx dep-rec check csvparser
 ```
 
 ```
@@ -63,10 +63,10 @@ npx drec check csvparser
 ```
 
 ```bash
-npx drec check left-pad              # is this safe to install?
-npx drec recommend "jwt library"     # what should I use?
-npx drec recommend "pdf" --limit 3   # works outside the curated set too
-npx drec categories
+npx dep-rec check left-pad              # is this safe to install?
+npx dep-rec recommend "jwt library"     # what should I use?
+npx dep-rec recommend "pdf" --limit 3   # works outside the curated set too
+npx dep-rec categories
 ```
 
 Scores move with live data, so your numbers won't match the sample exactly —
@@ -80,19 +80,19 @@ Add to your assistant's MCP config — Claude Code's `.mcp.json`, Cursor's
 ```json
 {
   "mcpServers": {
-    "drec": {
+    "dep-rec": {
       "command": "npx",
-      "args": ["-y", "-p", "drec", "drec-mcp-server"]
+      "args": ["-y", "-p", "dep-rec", "dep-rec-mcp-server"]
     }
   }
 }
 ```
 
-The `-p drec` matters: the binary is `drec-mcp-server` but the
-package is `drec`, so a bare `npx -y drec-mcp-server` would look
+The `-p dep-rec` matters: the binary is `dep-rec-mcp-server` but the
+package is `dep-rec`, so a bare `npx -y dep-rec-mcp-server` would look
 for a package by that name and 404. Already installed in the project? Use
 `"command": "node"` with
-`["node_modules/drec/dist/server.js"]` instead.
+`["node_modules/dep-rec/dist/server.js"]` instead.
 
 Then the conversation goes differently:
 
@@ -179,9 +179,9 @@ accusation:
 ## CLI reference
 
 ```
-drec check <package-name> [--json] [--db <path>]
-drec recommend "<need>" [--runtime node|edge] [--license MIT] [--limit 1-20] [--json] [--db <path>]
-drec categories [--json] [--db <path>]
+dep-rec check <package-name> [--json] [--db <path>]
+dep-rec recommend "<need>" [--runtime node|edge] [--license MIT] [--limit 1-20] [--json] [--db <path>]
+dep-rec categories [--json] [--db <path>]
 ```
 
 | Flag | Effect |
@@ -190,7 +190,7 @@ drec categories [--json] [--db <path>]
 | `--limit <1-20>` | How many candidates to return (default 5) |
 | `--runtime node\|edge` | Target runtime; `edge` attaches an explicit not-sandbox-tested caveat |
 | `--license <id>` | Exact license match, e.g. `MIT` |
-| `--db <path>` | Use a different store file (also `DREC_DB_PATH`) |
+| `--db <path>` | Use a different store file (also `DEP_REC_DB_PATH`) |
 
 `check` exits non-zero when a package can't be resolved, so a hallucinated
 name in a PR fails the build.
@@ -225,12 +225,12 @@ Ten curated categories — auth-jwt, csv-parsing, date-time, http-client,
 logging, orm-database, state-management, testing, validation, web-framework —
 are ranked by percentile against a real competitor set.
 
-Anything else is discovered live: `drec` searches npm, fetches each
+Anything else is discovered live: `dep-rec` searches npm, fetches each
 candidate, runs the identical checks, and returns what clears the bar, marked
 `discoveredVia: "npm-search"`.
 
 ```
-$ drec recommend "pdf"
+$ dep-rec recommend "pdf"
 1. @react-pdf/pdfkit  81.4     2. @react-pdf/renderer  90.8
 3. pdf-merger-js      80.8     4. ng2-pdf-viewer       69.6
 ```

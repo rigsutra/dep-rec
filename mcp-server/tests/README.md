@@ -20,8 +20,8 @@ the project's stance on dependencies elsewhere.
 ## Safety
 
 Every suite that touches the store copies `data/store.db` to a temp
-directory and points `DREC_DB_PATH` at the copy, so a test can never
-corrupt the artifact that ships inside the package. (`DREC_DB_PATH` was
+directory and points `DEP_REC_DB_PATH` at the copy, so a test can never
+corrupt the artifact that ships inside the package. (`DEP_REC_DB_PATH` was
 added for exactly this reason — the path used to be hardcoded.)
 
 ## The suites

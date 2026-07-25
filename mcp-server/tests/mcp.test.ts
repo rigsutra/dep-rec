@@ -16,7 +16,7 @@ let mcp: McpSession;
 let dbPath: string;
 
 before(async () => {
-  const dir = mkdtempSync(join(tmpdir(), "drec-mcp-"));
+  const dir = mkdtempSync(join(tmpdir(), "dep-rec-mcp-"));
   dbPath = join(dir, "store.db");
   copyFileSync(join(REPO_ROOT, "data/store.db"), dbPath);
   mcp = await openMcp({ dbPath });
@@ -118,7 +118,7 @@ describe("MCP — check_package", () => {
   });
 
   test("a nonexistent package returns found:false with an actionable note", async () => {
-    const r = await mcp.call("check_package", { name: "drec-mcp-nope-xyz-111" });
+    const r = await mcp.call("check_package", { name: "dep-rec-mcp-nope-xyz-111" });
     assert.equal(r.json.found, false);
     assert.match(r.json.note, /hallucinated|typosquat/i);
     assert.equal(r.json.score, undefined);

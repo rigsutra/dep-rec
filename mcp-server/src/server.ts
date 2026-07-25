@@ -11,6 +11,7 @@
 
 // Must come first: installs the filter before node:sqlite is ever touched.
 import "./quiet-sqlite-warning.js";
+import { readFileSync } from "node:fs";
 import { listCategories, recommend, checkPackage, MAX_LIMIT } from "./data.js";
 import { createServer, type ToolSpec } from "./mcp/protocol.js";
 
@@ -112,10 +113,18 @@ const TOOLS: ToolSpec[] = [
   },
 ];
 
-export const server = createServer({ name: "drec-engine", version: "0.3.0" }, TOOLS);
+// Read from package.json rather than hardcoded. The literal that used to be
+// here silently drifted: the package went to 0.3.1 while the server kept
+// telling every MCP client it was 0.3.0. Resolves identically from
+// dist/server.js and from src/server.ts under tsx.
+const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+  version: string;
+};
+
+export const server = createServer({ name: "dep-rec-engine", version }, TOOLS);
 
 // Only start reading stdin when actually run as the server binary. Importing
 // this module for its TOOLS (as the test suite does) must not hijack stdio.
-if (process.env.DREC_NO_LISTEN !== "1") {
+if (process.env.DEP_REC_NO_LISTEN !== "1") {
   server.listen();
 }

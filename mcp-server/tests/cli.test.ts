@@ -14,7 +14,7 @@ import { runCli, REPO_ROOT, INVALID_NAMES, HOSTILE_NAMES } from "./helpers.js";
 let dbPath: string;
 
 before(() => {
-  const dir = mkdtempSync(join(tmpdir(), "drec-cli-"));
+  const dir = mkdtempSync(join(tmpdir(), "dep-rec-cli-"));
   dbPath = join(dir, "store.db");
   copyFileSync(join(REPO_ROOT, "data/store.db"), dbPath);
 });
@@ -24,9 +24,9 @@ describe("CLI — help and dispatch", () => {
     const r = await runCli([], { dbPath });
     assert.equal(r.code, 0);
     assert.match(r.stdout, /Usage:/);
-    assert.match(r.stdout, /drec check/);
-    assert.match(r.stdout, /drec recommend/);
-    assert.match(r.stdout, /drec categories/);
+    assert.match(r.stdout, /dep-rec check/);
+    assert.match(r.stdout, /dep-rec recommend/);
+    assert.match(r.stdout, /dep-rec categories/);
   });
 
   for (const flag of ["--help", "-h", "help"]) {
@@ -70,11 +70,11 @@ describe("CLI — check", () => {
   test("missing package argument exits non-zero with usage on stderr", async () => {
     const r = await runCli(["check"], { dbPath });
     assert.notEqual(r.code, 0);
-    assert.match(r.stderr, /Usage: drec check/);
+    assert.match(r.stderr, /Usage: dep-rec check/);
   });
 
   test("a nonexistent package is reported as not found, and does not exit 0 silently lying", async () => {
-    const r = await runCli(["check", "drec-test-nope-xyz-000", "--json"], { dbPath });
+    const r = await runCli(["check", "dep-rec-test-nope-xyz-000", "--json"], { dbPath });
     assert.equal(r.jsonParseError, undefined);
     assert.equal(r.json.found, false);
     assert.equal(r.json.score, undefined, "an unresolvable package must not carry a score");
@@ -93,7 +93,7 @@ describe("CLI — check", () => {
   });
 
   test("human output for a not-found package is clearly negative", async () => {
-    const r = await runCli(["check", "drec-test-nope-xyz-000"], { dbPath });
+    const r = await runCli(["check", "dep-rec-test-nope-xyz-000"], { dbPath });
     assert.match(r.stdout, /✗/);
     assert.doesNotMatch(r.stdout, /✓/, "must not show a success marker for a package that does not exist");
   });
@@ -236,7 +236,7 @@ describe("CLI — recommend", () => {
   test("missing need argument exits non-zero", async () => {
     const r = await runCli(["recommend"], { dbPath });
     assert.notEqual(r.code, 0);
-    assert.match(r.stderr, /Usage: drec recommend/);
+    assert.match(r.stderr, /Usage: dep-rec recommend/);
   });
 
   test("a multi-word need does not require quoting", async () => {
@@ -356,7 +356,7 @@ describe("CLI — hostile input must not crash, lie, or escape", () => {
 
   test("a check against an unwritable database path fails loudly rather than silently", async () => {
     const r = await runCli(["check", "zod", "--json"], {
-      dbPath: join(tmpdir(), "drec-nonexistent-dir-xyz", "store.db"),
+      dbPath: join(tmpdir(), "dep-rec-nonexistent-dir-xyz", "store.db"),
       timeoutMs: 30_000,
     });
     assert.notEqual(r.code, 0, "an unusable database must be an error, not an empty success");

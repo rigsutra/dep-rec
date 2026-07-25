@@ -1,6 +1,6 @@
 const REGISTRY = "https://registry.npmjs.org";
 const DOWNLOADS = "https://api.npmjs.org/downloads/point/last-week";
-const UA = "drec-engine-stage1-collector/0.1 (prototype)";
+const UA = "dep-rec-engine-stage1-collector/0.1 (prototype)";
 
 export interface NpmSearchHit {
   name: string;

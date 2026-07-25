@@ -23,7 +23,7 @@ import { DatabaseSync } from "node:sqlite";
 import { allNames, TIERS } from "./corpus.js";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const workDir = mkdtempSync(join(tmpdir(), "drec-stress-"));
+const workDir = mkdtempSync(join(tmpdir(), "dep-rec-stress-"));
 
 const phaseArg = process.argv.find((a) => a.startsWith("--phase="))?.split("=")[1];
 const wanted = (p: string) => !phaseArg || phaseArg.includes(p);
@@ -71,7 +71,7 @@ interface Outcome {
 }
 
 async function phaseA(): Promise<Outcome[]> {
-  process.env.DREC_DB_PATH = freshStore("breadth");
+  process.env.DEP_REC_DB_PATH = freshStore("breadth");
   const { checkPackage } = await import("../src/data.js");
   const { getPackage } = await import("../src/store/db.js");
   const { downloadsPacingMs } = await import("../src/sources/npm.js");
@@ -208,7 +208,7 @@ function runCliProc(
     const t0 = Date.now();
     const child = spawn(process.execPath, ["--import", "tsx", join(ROOT, "src/cli.ts"), ...args], {
       cwd: ROOT,
-      env: { ...process.env, DREC_DB_PATH: dbPath } as NodeJS.ProcessEnv,
+      env: { ...process.env, DEP_REC_DB_PATH: dbPath } as NodeJS.ProcessEnv,
     });
     let stdout = "";
     let stderr = "";
@@ -351,7 +351,7 @@ async function phaseC() {
 
 async function phaseD(outcomes: Outcome[]) {
   console.log("\nPHASE D — would this actually help a model?");
-  process.env.DREC_DB_PATH = freshStore("judge");
+  process.env.DEP_REC_DB_PATH = freshStore("judge");
   const { recommend } = await import("../src/data.js");
 
   const needs = ["jwt library", "csv parser", "http client", "orm", "testing", "logger", "validation", "date", "state management", "web framework"];
@@ -404,7 +404,7 @@ async function phaseD(outcomes: Outcome[]) {
 // ---------------------------------------------------------------------------
 
 async function main() {
-  console.log(`drec stress run — store copies under ${workDir}`);
+  console.log(`dep-rec stress run — store copies under ${workDir}`);
   let outcomes: Outcome[] = [];
   if (wanted("a")) outcomes = await phaseA();
   if (wanted("b")) await phaseB();
@@ -432,7 +432,7 @@ async function main() {
 
 main().finally(() => {
   try {
-    if (process.env.DREC_STRESS_KEEP !== "1") rmSync(workDir, { recursive: true, force: true });
+    if (process.env.DEP_REC_STRESS_KEEP !== "1") rmSync(workDir, { recursive: true, force: true });
   } catch {
     /* windows holds sqlite handles briefly; the OS will clean temp */
   }

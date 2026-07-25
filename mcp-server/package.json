@@ -1,7 +1,7 @@
 {
-  "name": "drec",
+  "name": "dep-rec",
   "private": false,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "license": "MIT",
   "author": "Ashish Singh",
@@ -24,8 +24,8 @@
     "security"
   ],
   "bin": {
-    "drec": "dist/cli.js",
-    "drec-mcp-server": "dist/server.js"
+    "dep-rec": "dist/cli.js",
+    "dep-rec-mcp-server": "dist/server.js"
   },
   "main": "dist/server.js",
   "files": [
