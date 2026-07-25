@@ -41,12 +41,19 @@ async function main() {
       modified_at: p.npm.modifiedAt,
       latest_version: p.npm.latestVersion,
       dependencies_count: p.npm.dependenciesCount,
+      // stage1-collector doesn't capture this yet — the curated baseline
+      // starts as "unknown/false" here and picks up the real value the
+      // first time each package gets touched by check_package or the
+      // refresh worker, both of which use the live-fetch path that does
+      // capture it.
+      has_install_scripts: false,
       deprecated: p.npm.deprecated,
       esm_support: p.compatibility.esmSupport,
       typescript_support: p.compatibility.typescriptSupport,
       release_cadence_days: p.compatibility.releaseCadenceDays,
       weekly_downloads: p.downloads.weekly,
       vulnerability_ids: p.security.vulnerabilityIds,
+      security_check_failed: false, // stage1-collector's OSV batch call succeeded for these
       raw_fetched_at: nowIso,
       first_seen_at: nowIso,
     });

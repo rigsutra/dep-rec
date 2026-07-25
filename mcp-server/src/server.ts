@@ -62,8 +62,12 @@ server.registerTool(
       "stale one is fetched live, stored, and from then on kept fresh by a background refresh job — so the first " +
       "person to ask about a package pays the fetch cost, not everyone after them. If the name doesn't resolve on " +
       "the npm registry at all, treat that as a strong signal it may be hallucinated or typosquatted — verify " +
-      "before installing anything with that name. Prefer recommend_package instead when the package fits one of " +
-      "the known categories, since that score is ranked against real competitors rather than on an absolute scale.",
+      "before installing anything with that name. Also returns versionGuidance when relevant: if the latest " +
+      "release is under 30 days old, it recommends the newest version that's cleared that observation window " +
+      "instead — UNLESS the fresher release fixes a real vulnerability the older one has, which is verified via " +
+      "version-scoped OSV lookups on both versions, never assumed from recency alone. Prefer recommend_package " +
+      "instead when the package fits one of the known categories, since that score is ranked against real " +
+      "competitors rather than on an absolute scale.",
     inputSchema: {
       name: z.string().describe("Exact npm package name to check, e.g. 'left-pad' or '@scope/package'"),
     },

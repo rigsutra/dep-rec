@@ -3,10 +3,11 @@
 // — see refresh-worker.ts) the moment anyone looks it up, whether that's a
 // curated seed package or a one-off check_package call.
 
-import { getPackage, listByCategory, upsertRaw, upsertScore, type PackageRow } from "./db.js";
+import { getPackage, listByCategory, upsertRaw, upsertScore, upsertVersionGuidance, type PackageRow } from "./db.js";
 import { fetchPackageDoc, fetchWeeklyDownloads } from "../sources/npm.js";
 import { queryVulnerabilities } from "../sources/osv.js";
 import { scoreCategoryGroup, scoreAbsolute } from "./scoring.js";
+import { resolveRecommendedVersion } from "./version-safety.js";
 
 // How long stored raw data is trusted before a request triggers a live
 // refetch. Deliberately a plain constant, not a config file — tune this
@@ -39,10 +40,20 @@ async function fetchAndStore(name: string, existing: PackageRow | null): Promise
   const doc = await fetchPackageDoc(name);
   if (!doc.found) return { found: false, reason: doc.reason };
 
-  const [weeklyDownloads, vulnerabilityIds] = await Promise.all([
+  const [weeklyDownloads, vulnResult] = await Promise.all([
     fetchWeeklyDownloads(name),
-    doc.latestVersion ? queryVulnerabilities(name, doc.latestVersion) : Promise.resolve([]),
+    doc.latestVersion
+      ? queryVulnerabilities(name, doc.latestVersion)
+      : Promise.resolve({ ok: true as const, vulnerabilityIds: [] as string[] }),
   ]);
+
+  // A failed OSV check is NOT "confirmed zero vulnerabilities." Keep the
+  // last successfully-fetched list rather than overwriting good data with
+  // an empty one, and flag that the most recent attempt couldn't verify it
+  // fresh — scoring.ts turns that flag into an honest reason string instead
+  // of a false "no known vulnerabilities."
+  const securityCheckFailed = !vulnResult.ok;
+  const vulnerabilityIds = vulnResult.ok ? vulnResult.vulnerabilityIds : existing?.vulnerability_ids ?? [];
 
   const nowIso = new Date().toISOString();
   upsertRaw({
@@ -54,15 +65,22 @@ async function fetchAndStore(name: string, existing: PackageRow | null): Promise
     modified_at: doc.modifiedAt,
     latest_version: doc.latestVersion,
     dependencies_count: doc.dependenciesCount,
+    has_install_scripts: doc.hasInstallScripts,
     deprecated: doc.deprecated,
     esm_support: doc.esmSupport,
     typescript_support: doc.typescriptSupport,
     release_cadence_days: doc.releaseCadenceDays,
     weekly_downloads: weeklyDownloads,
     vulnerability_ids: vulnerabilityIds,
+    security_check_failed: securityCheckFailed,
     raw_fetched_at: nowIso,
     first_seen_at: existing?.first_seen_at ?? nowIso,
   });
+
+  if (doc.latestVersion) {
+    const guidance = await resolveRecommendedVersion(name, doc.latestVersion, doc.versionHistory, vulnResult);
+    upsertVersionGuidance(name, guidance.recommendedVersion, guidance.reason);
+  }
 
   const row = getPackage(name)!;
   rescoreRow(row);

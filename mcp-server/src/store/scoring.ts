@@ -28,13 +28,27 @@ function clamp(n: number, lo = 0, hi = 100): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
-function securityScore(deprecated: boolean, vulnCount: number, reasons: string[]): number {
+function securityScore(deprecated: boolean, vulnCount: number, securityCheckFailed: boolean, reasons: string[]): number {
   let s = 100;
-  if (vulnCount > 0) {
-    s -= Math.min(vulnCount * 15, 60);
+  if (securityCheckFailed) {
+    // The OSV check itself failed (network/rate-limit/outage) — this is NOT
+    // the same as "checked and clean." Saying so outright rather than
+    // silently falling back to a confident "no known vulnerabilities,"
+    // which is exactly the failure mode that made a rate limit
+    // indistinguishable from a real clean bill of health.
+    s -= 20;
+    reasons.push(
+      vulnCount > 0
+        ? `vulnerability check could not be freshly verified (OSV unreachable) — showing ${vulnCount} previously known vulnerabilit${vulnCount === 1 ? "y" : "ies"}, which may be out of date`
+        : "vulnerability check could not be verified (OSV unreachable) — security status is unknown, not confirmed clean"
+    );
+  } else if (vulnCount > 0) {
     reasons.push(`${vulnCount} known vulnerabilit${vulnCount === 1 ? "y" : "ies"} affecting the current version`);
   } else {
     reasons.push("no known vulnerabilities affecting the current version");
+  }
+  if (vulnCount > 0) {
+    s -= Math.min(vulnCount * 15, 60);
   }
   if (deprecated) {
     s -= 50;
@@ -51,9 +65,17 @@ function compatibilityScore(esm: boolean, ts: boolean, reasons: string[]): numbe
   return s;
 }
 
-function supplyChainScore(depCount: number, reasons: string[]): number {
+function supplyChainScore(depCount: number, hasInstallScripts: boolean, reasons: string[]): number {
+  let s = 100 - depCount * 2;
+  if (hasInstallScripts) {
+    // The actual event-stream/ua-parser-js attack vector: arbitrary code
+    // execution on `npm install`, before anyone's reviewed anything. This
+    // matters far more than dependency count and is weighted accordingly.
+    s -= 40;
+    reasons.push("runs a preinstall/install/postinstall script — arbitrary code executes on npm install, review before trusting");
+  }
   if (depCount === 0) reasons.push("zero direct dependencies");
-  return clamp(100 - depCount * 2);
+  return clamp(s);
 }
 
 function percentileRanks(names: string[], values: Map<string, number>, higherIsBetter: boolean): Map<string, number> {
@@ -95,7 +117,7 @@ export function scoreCategoryGroup(rows: PackageRow[]): Map<string, ScoreResult>
   const results = new Map<string, ScoreResult>();
   for (const r of rows) {
     const reasons: string[] = [];
-    const security = securityScore(r.deprecated, r.vulnerability_ids.length, reasons);
+    const security = securityScore(r.deprecated, r.vulnerability_ids.length, r.security_check_failed, reasons);
 
     const recency = recencyPct.get(r.name) ?? 50;
     const cadence = cadencePct.get(r.name) ?? 50;
@@ -106,7 +128,7 @@ export function scoreCategoryGroup(rows: PackageRow[]): Map<string, ScoreResult>
 
     const compatibility = compatibilityScore(r.esm_support, r.typescript_support, reasons);
     const community = clamp(downloadPct.get(r.name) ?? 50);
-    const supplyChain = supplyChainScore(r.dependencies_count, reasons);
+    const supplyChain = supplyChainScore(r.dependencies_count, r.has_install_scripts, reasons);
 
     const total = 0.25 * security + 0.25 * maintenance + 0.2 * compatibility + 0.2 * community + 0.1 * supplyChain;
     results.set(r.name, {
@@ -124,7 +146,7 @@ export function scoreCategoryGroup(rows: PackageRow[]): Map<string, ScoreResult>
 
 export function scoreAbsolute(r: PackageRow): ScoreResult {
   const reasons: string[] = [];
-  const security = securityScore(r.deprecated, r.vulnerability_ids.length, reasons);
+  const security = securityScore(r.deprecated, r.vulnerability_ids.length, r.security_check_failed, reasons);
 
   const daysSinceModified = r.modified_at ? (Date.now() - new Date(r.modified_at).getTime()) / 86_400_000 : 99999;
   const recency = clamp(100 - daysSinceModified / 5);
@@ -136,7 +158,7 @@ export function scoreAbsolute(r: PackageRow): ScoreResult {
 
   const compatibility = compatibilityScore(r.esm_support, r.typescript_support, reasons);
   const community = clamp(Math.log10(r.weekly_downloads + 1) * 14);
-  const supplyChain = supplyChainScore(r.dependencies_count, reasons);
+  const supplyChain = supplyChainScore(r.dependencies_count, r.has_install_scripts, reasons);
 
   const total = 0.25 * security + 0.25 * maintenance + 0.2 * compatibility + 0.2 * community + 0.1 * supplyChain;
   return {

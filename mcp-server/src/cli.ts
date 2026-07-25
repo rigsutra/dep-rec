@@ -48,6 +48,12 @@ async function runCheck(rest: string[]): Promise<void> {
       `${result.score! >= 70 ? "✓" : "!"} ${result.name}  score ${result.score}  [${result.servedFrom}]`,
       `  license: ${result.npm!.license ?? "unknown"}  maintainers: ${result.npm!.maintainers}  deps: ${result.npm!.dependenciesCount}  weekly downloads: ${result.weeklyDownloads!.toLocaleString("en-US")}`,
       ...result.reasons!.map((r) => `  - ${r}`),
+      ...(result.versionGuidance
+        ? [
+            `  recommended version: ${result.versionGuidance.recommendedVersion}${result.versionGuidance.recommendedVersion === result.npm!.latestVersion ? " (= latest)" : ` (latest is ${result.npm!.latestVersion})`}`,
+            `    ${result.versionGuidance.reason}`,
+          ]
+        : []),
       `  ${result.note}`,
     ];
     return lines.join("\n");

@@ -148,6 +148,28 @@ numbering grouping (`23,91,77,371` instead of `239,177,371`) — fixed by
 pinning `"en-US"` explicitly rather than trusting whatever locale the host
 happens to have configured.
 
+## Post-publish security review (v0.1.1)
+
+Once `dep-rec` was actually live on the public registry, an external
+review against the shipped source found 8 real issues — a stale "not
+published yet" doc line, OSV checks failing open on a non-2xx response,
+package age being fetched but never used, supply-chain scoring only
+counting dependency count (not install scripts), and a transitively
+pulled-in moderate vulnerability via `@hono/node-server`. All five got
+real attention in `0.1.1` — though the vulnerability fix is only partial:
+an `overrides` entry makes it disappear in this repo's own workspace, but
+that does *not* propagate to anyone installing `dep-rec` as a dependency,
+verified directly against a clean install in `example-consumer`. Also
+turned "package age" into a real
+cooldown-based version recommendation — `check_package` now suggests the
+newest version that's at least 30 days old, unless a fresher release is
+*verified* (via a real OSV lookup on both versions, not assumed from
+recency) to fix something the older one has. Two deeper gaps — no
+name-similarity typosquat detection, and no way to tell a decode-only JWT
+library from a real auth one within a category — are real and
+deliberately deferred, not silently ignored. Full writeup:
+[`mcp-server/README.md`](mcp-server/README.md#post-publish-security-review-v011).
+
 ## Not yet wired in
 
 - GitHub-derived signals (stars, forks, bus factor) — needs an authenticated

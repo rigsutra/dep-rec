@@ -30,14 +30,18 @@ export interface PackageRow {
   modified_at: string | null;
   latest_version: string | null;
   dependencies_count: number;
+  has_install_scripts: boolean;
   deprecated: boolean;
   esm_support: boolean;
   typescript_support: boolean;
   release_cadence_days: number | null;
   weekly_downloads: number;
   vulnerability_ids: string[];
+  security_check_failed: boolean;
   raw_fetched_at: string;
   first_seen_at: string;
+  recommended_version: string | null;
+  version_guidance: string | null;
   score_total: number | null;
   score_security: number | null;
   score_maintenance: number | null;
@@ -58,6 +62,8 @@ function rowToPackage(r: any): PackageRow {
     deprecated: Boolean(r.deprecated),
     esm_support: Boolean(r.esm_support),
     typescript_support: Boolean(r.typescript_support),
+    security_check_failed: Boolean(r.security_check_failed),
+    has_install_scripts: Boolean(r.has_install_scripts),
   };
 }
 
@@ -104,12 +110,14 @@ export interface RawUpsert {
   modified_at: string | null;
   latest_version: string | null;
   dependencies_count: number;
+  has_install_scripts: boolean;
   deprecated: boolean;
   esm_support: boolean;
   typescript_support: boolean;
   release_cadence_days: number | null;
   weekly_downloads: number;
   vulnerability_ids: string[];
+  security_check_failed: boolean;
   raw_fetched_at: string;
   first_seen_at: string;
 }
@@ -122,16 +130,17 @@ export function upsertRaw(r: RawUpsert): void {
     .prepare(
       `INSERT INTO packages
         (name, categories, license, maintainers, created_at, modified_at, latest_version,
-         dependencies_count, deprecated, esm_support, typescript_support, release_cadence_days,
-         weekly_downloads, vulnerability_ids, raw_fetched_at, first_seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         dependencies_count, has_install_scripts, deprecated, esm_support, typescript_support, release_cadence_days,
+         weekly_downloads, vulnerability_ids, security_check_failed, raw_fetched_at, first_seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(name) DO UPDATE SET
          categories=excluded.categories, license=excluded.license, maintainers=excluded.maintainers,
          created_at=excluded.created_at, modified_at=excluded.modified_at, latest_version=excluded.latest_version,
-         dependencies_count=excluded.dependencies_count, deprecated=excluded.deprecated,
-         esm_support=excluded.esm_support, typescript_support=excluded.typescript_support,
+         dependencies_count=excluded.dependencies_count, has_install_scripts=excluded.has_install_scripts,
+         deprecated=excluded.deprecated, esm_support=excluded.esm_support, typescript_support=excluded.typescript_support,
          release_cadence_days=excluded.release_cadence_days, weekly_downloads=excluded.weekly_downloads,
-         vulnerability_ids=excluded.vulnerability_ids, raw_fetched_at=excluded.raw_fetched_at`
+         vulnerability_ids=excluded.vulnerability_ids, security_check_failed=excluded.security_check_failed,
+         raw_fetched_at=excluded.raw_fetched_at`
     )
     .run(
       r.name,
@@ -142,15 +151,23 @@ export function upsertRaw(r: RawUpsert): void {
       r.modified_at,
       r.latest_version,
       r.dependencies_count,
+      Number(r.has_install_scripts),
       Number(r.deprecated),
       Number(r.esm_support),
       Number(r.typescript_support),
       r.release_cadence_days,
       r.weekly_downloads,
       JSON.stringify(r.vulnerability_ids),
+      Number(r.security_check_failed),
       r.raw_fetched_at,
       r.first_seen_at
     );
+}
+
+export function upsertVersionGuidance(name: string, recommendedVersion: string, guidance: string): void {
+  getDb()
+    .prepare(`UPDATE packages SET recommended_version=?, version_guidance=? WHERE name=?`)
+    .run(recommendedVersion, guidance, name);
 }
 
 export interface ScoreUpsert {

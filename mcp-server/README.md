@@ -144,12 +144,121 @@ independent process gets `servedFrom: "cache"` with identical data — proof
 the shared on-disk file is doing its job across process boundaries, not
 just within one long-lived connection.
 
-**Not done yet, deliberately:** an actual `npm publish` to the public
-registry. `private: true` is set on purpose so that can't happen by
-accident — publishing is a one-way, visible-to-others action, worth a
-separate explicit decision (and a trademark/name-availability check,
-per the earlier "avoid anything that reads like an npm sub-brand" note)
-rather than something that happens as a side effect of packaging work.
+## It's published
+
+`dep-rec` is live on the public npm registry (`private: false`,
+name-availability checked beforehand). That was a deliberate, separate
+decision made after all of the above was verified locally — not a side
+effect of packaging work. Install it in any project:
+
+```bash
+npm install --save-dev dep-rec
+npx dep-rec check left-pad
+```
+
+or globally:
+
+```bash
+npm install -g dep-rec
+dep-rec check left-pad
+```
+
+Since publishing is effectively permanent (npm's unpublish window is 72
+hours and only applies if nothing depends on the version yet), a
+post-publish review is exactly what caught several of the real issues
+documented throughout this README (the OSV version-scoping bug, the
+supply-chain zero-sum bug, the spawned-process environment gotcha, and
+more below) — publishing something and then keeping it honestly
+maintained is the actual model here, not "get it perfect before anyone
+can touch it."
+
+## Post-publish security review — v0.1.1
+
+An external review against the actually-shipped `0.1.0` source turned up
+eight issues. Five are fixed in `0.1.1`; two are real, known, and
+deliberately deferred; one was already self-disclosed.
+
+**Fixed:**
+
+1. **README claimed "not published yet" after it actually was.** Stale
+   doc text from before the real `npm publish` happened — fixed above.
+2. **OSV checks failed open.** `sources/osv.ts` treated any non-2xx
+   response as "zero vulnerabilities," making a rate limit or outage
+   indistinguishable from a real clean bill of health. Now returns
+   `{ok: false, error}` on failure (with retry/backoff first), and
+   scoring says exactly that — *"vulnerability check could not be
+   verified (OSV unreachable) — security status is unknown, not
+   confirmed clean"* — instead of a false-confident "no known
+   vulnerabilities." The store also keeps the last successfully-fetched
+   vulnerability list rather than overwriting good data with an empty
+   one when a refresh attempt fails.
+3. **Package age was fetched but never used.** Turned into a real
+   feature rather than a scoring input: `check_package`/`dep-rec check`
+   now return `versionGuidance` — recommend the newest version that's at
+   least 30 days old (a cooldown/observation window), *unless* a fresher
+   release fixes a real vulnerability the older one has. That "unless" is
+   verified, not assumed: both the cooldown-safe version and the latest
+   are queried against OSV directly (`store/version-safety.ts`), and the
+   newer version only wins when OSV confirms it's actually clean of
+   something the older one isn't. If either check fails, it defaults to
+   the cooldown-safe pick rather than gambling on an unverified "newer
+   must be safer" claim.
+4. **Supply-chain score only counted dependencies.** Now also checks for
+   `preinstall`/`install`/`postinstall` scripts on the current version —
+   the actual event-stream/ua-parser-js attack vector (arbitrary code
+   execution on `npm install`) — and weights it far more heavily (-40)
+   than dependency count. Verified against real packages: flags
+   `puppeteer` (which downloads a Chromium binary via `postinstall`),
+   correctly leaves `sharp` unflagged (its current version uses
+   prebuilt-binary `optionalDependencies` instead of install scripts, not
+   a detection gap).
+5. **Shipped its own flagged vulnerability — partially fixed, and worth
+   being precise about what "fixed" means here.** `GHSA-frvp-7c67-39w9`
+   (moderate, Windows path traversal) comes via `@hono/node-server <2.0.5`,
+   pulled in transitively through `@modelcontextprotocol/sdk` — whose own
+   dependency range (`^1.19.9`, unchanged even in its latest release)
+   can't reach the patched version on its own. Added a package.json
+   `overrides` entry forcing `@hono/node-server` to `^2.0.5`, which makes
+   `npm audit` clean **inside this repo's own `mcp-server/` workspace**.
+
+   That override does **not** propagate to anyone who installs `dep-rec`
+   as a dependency in their own project — `overrides` only affects the
+   project that declares it, not downstream consumers. Verified directly:
+   a clean `npm install` of the published package in `example-consumer`
+   still shows the same advisory. If you want your own `npm audit` clean
+   too, add the same override to your project's `package.json`:
+   ```json
+   "overrides": { "@hono/node-server": "^2.0.5" }
+   ```
+   The more meaningful mitigation: the vulnerable code (Hono's
+   `serve-static` path handling) is never reachable through `dep-rec`'s
+   actual runtime either way, published fix or not — this server only uses
+   the SDK's stdio transport, never the Hono-based HTTP transport that
+   dependency serves. Real fix is upstream, in `@modelcontextprotocol/sdk`
+   bumping its own `@hono/node-server` range; tracking that, not claiming
+   it's fully resolved.
+
+**Known, not yet fixed — real gaps, deliberately deferred:**
+
+- **No name-similarity typosquat detection.** `check_package` only flags
+  "likely hallucinated or typosquatted" on a registry 404. A resolvable
+  typosquat (a real, installable package with a name close to a popular
+  one) gets scored like any ordinary package — reproduced live with
+  `check reactt` (real package, 61 weekly downloads, 1 maintainer, no
+  edit-distance check anywhere flags its resemblance to `react`). This is
+  the actual attack pattern, and the gap the whole project started from.
+- **No decode-vs-verify distinction within a category.** `recommend "jwt
+  library"` returns `jwt-decode` as the #1 pick — but that library
+  explicitly does not verify signatures, it only decodes. The
+  category-matching has no concept of "capability" beyond the coarse
+  category label, so it can't tell "decode-only" apart from "full
+  auth verification" within `auth-jwt`. A real foot-gun if someone takes
+  the top recommendation at face value for an actual auth flow.
+
+**Already self-disclosed, unchanged:** the `node:sqlite` experimental
+warning on every invocation, and the 24h cache window meaning a
+just-disclosed CVE can be masked for up to a day on a cached lookup — both
+called out earlier in this README as known, accepted tradeoffs.
 
 ## To actually point a live assistant at it
 

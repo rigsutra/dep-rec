@@ -130,6 +130,10 @@ export interface CheckPackageResult {
     deprecated: boolean;
   };
   weeklyDownloads?: number;
+  versionGuidance?: {
+    recommendedVersion: string;
+    reason: string;
+  };
   note: string;
 }
 
@@ -170,6 +174,10 @@ export async function checkPackage(name: string): Promise<CheckPackageResult> {
       deprecated: row.deprecated,
     },
     weeklyDownloads: row.weekly_downloads,
+    versionGuidance:
+      row.recommended_version && row.version_guidance
+        ? { recommendedVersion: row.recommended_version, reason: row.version_guidance }
+        : undefined,
     note: inCuratedDataset
       ? "In a known category — this score is ranked against real category competitors (see recommend_package for the full comparison)."
       : "Scored on an absolute scale — not ranked against category competitors since this package isn't in a known category. Now tracked in the store either way, and will be kept fresh by the background refresh worker.",
