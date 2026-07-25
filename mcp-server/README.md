@@ -314,6 +314,43 @@ host at this server instead, check whether that host restricts the spawned
 process's environment — if `check_package` fails with `fetch failed` and
 `recommend_package` works fine, this is almost certainly why.
 
+## What is eligible to be recommended
+
+`recommend_package` will not put a package forward just because it scores well
+relative to its peers. A package must first clear an absolute bar
+(`src/store/eligibility.ts`):
+
+| Rule | Threshold |
+|---|---|
+| Not deprecated | — |
+| Real adoption | ≥ 10,000 weekly downloads |
+| Has a track record | ≥ 180 days since first publish |
+| Still maintained | released within ~2 years (3 years above 5M weekly downloads) |
+
+The staleness rule is adoption-aware on purpose. `redux` has ~39M weekly
+downloads and had not cut a release in 810 days — that reads as *stable*, not
+abandoned, and excluding it would be a worse error than keeping it.
+
+This exists because measuring the corpus found **211 of 499** curated entries
+failing that bar: packages with 2–6 weekly downloads, several abandoned for
+4+ years, and a 158-day-old package that was *leading* the web-framework
+category. A security-focused recommender that surfaces those undermines its own
+purpose.
+
+Two deliberate consequences:
+
+- **`check_package` still answers for anything.** Asking "I was told to install
+  this — is it any good?" about an obscure package is the entire point, so it
+  never refuses. It returns `recommendable: false` with
+  `notRecommendableBecause` instead.
+- **The gate runs at serve time, not only at build time.** A package can
+  degrade after it was collected — get deprecated, stop being released, lose
+  adoption — and the refresh worker updates that data without anything
+  otherwise stopping it from still being recommended.
+
+`recommend_package` reports `excludedAsUnrecommendable` so the narrowing is
+visible rather than silent.
+
 ## Tests
 
 ```bash
@@ -323,17 +360,19 @@ npm run test:mcp    # the MCP protocol surface on its own
 npm run test:gaps   # what the spec claimed but was never built
 ```
 
-~330 adversarial scenarios across >1000 packages, using `node:test` only (no
+372 adversarial scenarios across >1000 packages, using `node:test` only (no
 framework dependency). Every suite runs against a temp copy of the store, so
 tests can never corrupt the shipped `data/store.db`.
 
-Writing it found **seven real bugs**, all now fixed — including `NaN` scores
+Writing it found **eight real bugs**, all now fixed — including `NaN` scores
 from unparseable registry timestamps, identical packages scoring 0/50/100
 because percentile ranks were assigned by sort index, two legitimate packages
 (`rest`, `js-logger`) branded typosquats, a known typosquat (`reactt`) that had
-been committed into the shipped store database, and `check typescript`
-recommending `7.0.1-rc` as its "battle-tested" pick. Full inventory and the
-reasoning behind each: [`tests/README.md`](tests/README.md).
+been committed into the shipped store database, `check typescript` recommending
+`7.0.1-rc` as its "battle-tested" pick, and **211 of 499 curated packages
+failing a basic recommendation bar** — including entries with 2–6 weekly
+downloads and a 158-day-old package leading its category. Full inventory and
+the reasoning behind each: [`tests/README.md`](tests/README.md).
 
 The gap suite is worth calling out separately: it does **not** fail because a
 capability is missing. It fails if the tool *implies* it did something it

@@ -5,7 +5,7 @@
 // this script.
 
 import { readFile } from "node:fs/promises";
-import { upsertRaw } from "./db.js";
+import { upsertRaw, listAll } from "./db.js";
 import { rescoreCategory } from "./lookup.js";
 
 interface CollectorRecord {
@@ -63,6 +63,31 @@ async function main() {
   const categories = new Set(raw.flatMap((p) => p.categories));
   for (const cat of categories) rescoreCategory(cat);
   console.log(`Scored ${categories.size} categories.`);
+
+  // Report — not silently drop — how much of what npm's relevance search
+  // returned is not actually fit to recommend. The rows stay in the store
+  // (they are still legitimate lookup targets); recommend() filters them.
+  // Seeing this number is how the corpus-quality problem was noticed at all.
+  const { checkRecommendable } = await import("./eligibility.js");
+  const stored = listAll();
+  const rejected = stored.filter((r) => !checkRecommendable(r).eligible);
+  console.log(`\n${stored.length - rejected.length}/${stored.length} clear the recommendation bar.`);
+  if (rejected.length > 0) {
+    console.log(`${rejected.length} are tracked but will not be recommended. Worst offenders by adoption:`);
+    for (const r of rejected.sort((a, b) => a.weekly_downloads - b.weekly_downloads).slice(0, 8)) {
+      console.log(`  - ${r.name} (${r.weekly_downloads.toLocaleString("en-US")}/wk): ${checkRecommendable(r).failures.join("; ")}`);
+    }
+  }
+
+  const perCategory = new Map<string, number>();
+  for (const r of stored) {
+    if (!checkRecommendable(r).eligible) continue;
+    for (const c of r.categories) perCategory.set(c, (perCategory.get(c) ?? 0) + 1);
+  }
+  const thin = [...perCategory.entries()].filter(([, n]) => n < 5);
+  if (thin.length > 0) {
+    console.log(`\nWARNING: thin categories after the gate (a weak comparison set): ${thin.map(([c, n]) => `${c}=${n}`).join(", ")}`);
+  }
 }
 
 main().catch((err) => {

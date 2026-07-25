@@ -241,6 +241,25 @@ describe("CLI — recommend", () => {
     }
   });
 
+  test("every recommendation clears the eligibility bar", async () => {
+    const { MIN_WEEKLY_DOWNLOADS } = await import("../src/store/eligibility.js");
+    for (const need of ["jwt library", "csv parser", "logger", "orm", "testing", "http client", "date", "web framework", "validation", "state management"]) {
+      const r = await runCli(["recommend", need, "--limit", "5", "--json"], { dbPath });
+      for (const rec of r.json.recommendations) {
+        assert.ok(
+          rec.weeklyDownloads >= MIN_WEEKLY_DOWNLOADS,
+          `${need}: recommended ${rec.package} with only ${rec.weeklyDownloads} weekly downloads`
+        );
+      }
+    }
+  });
+
+  test("the count of packages excluded by the gate is disclosed, not hidden", async () => {
+    const r = await runCli(["recommend", "csv parser", "--json"], { dbPath });
+    assert.equal(typeof r.json.excludedAsUnrecommendable, "number");
+    assert.ok(r.json.excludedAsUnrecommendable > 0, "the csv category is known to contain unrecommendable entries");
+  });
+
   test("no recommendation is a deprecated package", async () => {
     for (const need of ["jwt library", "csv parser", "logger", "orm", "testing", "http client"]) {
       const r = await runCli(["recommend", need, "--limit", "5", "--json"], { dbPath });
@@ -317,8 +336,11 @@ describe("CLI — hostile input must not crash, lie, or escape", () => {
   test("the database still holds the full corpus after the hostile sweep", async () => {
     const r = await runCli(["categories", "--json"], { dbPath });
     assert.equal(r.code, 0);
+    // Counts are of recommendable packages, not everything tracked, so this is
+    // a floor well below the raw corpus size rather than an exact figure.
     const total = r.json.reduce((sum: number, c: any) => sum + c.count, 0);
-    assert.ok(total >= 499, `corpus shrank to ${total} after hostile input — data loss`);
+    assert.ok(total >= 200, `recommendable corpus shrank to ${total} after hostile input — data loss`);
+    assert.equal(r.json.length, 10, "a category must never disappear entirely");
   });
 
   test("a check against an unwritable database path fails loudly rather than silently", async () => {

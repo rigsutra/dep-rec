@@ -162,6 +162,32 @@ describe("MCP — check_package", () => {
     }
   });
 
+  test("an unrecommendable package is still answerable, but flagged as such", async () => {
+    // The whole point of check_package: it answers for anything, including
+    // packages this tool would never put forward itself.
+    const r = await mcp.call("check_package", { name: "csvparser" });
+    assert.equal(r.json.found, true, "must still answer — refusing would defeat the purpose");
+    assert.equal(r.json.recommendable, false);
+    assert.ok(Array.isArray(r.json.notRecommendableBecause));
+    assert.ok(r.json.notRecommendableBecause.length > 0, "must say why it would not be recommended");
+    assert.ok(
+      r.json.notRecommendableBecause.some((x: string) => /weekly downloads/i.test(x)),
+      "adoption should be cited for a package with 86 weekly downloads"
+    );
+  });
+
+  test("a healthy package is marked recommendable with no disqualifications", async () => {
+    const r = await mcp.call("check_package", { name: "zod" });
+    assert.equal(r.json.recommendable, true);
+    assert.equal(r.json.notRecommendableBecause, undefined);
+  });
+
+  test("a package flagged as a typosquat is never simultaneously recommendable", async () => {
+    const r = await mcp.call("check_package", { name: "reactt" });
+    assert.ok(r.json.typosquatWarning, "premise: reactt trips the detector");
+    assert.equal(r.json.recommendable, false, "flagging and recommending the same package is self-contradictory");
+  });
+
   test("a deprecated package is reported as deprecated", async () => {
     const r = await mcp.call("check_package", { name: "left-pad" });
     assert.equal(r.json.found, true);

@@ -34,8 +34,11 @@ server.registerTool(
       "deterministic score — security (OSV vulnerabilities scoped to the current version), maintenance " +
       "(release recency/cadence, maintainer count), compatibility (ESM/TypeScript support), community adoption " +
       "(downloads relative to same-category competitors), and supply-chain footprint (dependency count) — " +
-      "computed from real npm registry / OSV data, never guessed from training data. Always cite the returned " +
-      "`reasons` when explaining a recommendation; never invent a score or reason of your own.",
+      "computed from real npm registry / OSV data, never guessed from training data. Only packages that clear a " +
+      "recommendation bar are considered at all — deprecated, barely-adopted (<10k weekly downloads), brand-new " +
+      "(<180 days) and unmaintained (no release in ~2 years) packages are excluded rather than merely scored " +
+      "low, because putting them forward would undermine the point of the recommendation. Always cite the " +
+      "returned `reasons` when explaining a recommendation; never invent a score or reason of your own.",
     inputSchema: {
       need: z.string().describe("What you need, in plain language, e.g. 'JWT auth library' or 'CSV parser'"),
       runtime: z
@@ -66,7 +69,11 @@ server.registerTool(
       "a resolvable, installable package with a name one character off from a much more popular one (e.g. " +
       "'reactt' vs 'react') is the actual typosquat attack pattern, not just nonexistent names — if present, treat " +
       "it as seriously as a 404 and confirm the name was really intended before installing. Also returns " +
-      "versionGuidance when relevant: if the latest " +
+      "`recommendable`, with `notRecommendableBecause` listing why not — this tool answers for any package, " +
+      "including ones it would never put forward itself (too little adoption to have a real review surface, no " +
+      "release in years, deprecated). A low-adoption or unmaintained package can be a genuine risk even when " +
+      "nothing is formally wrong with it, so surface that to the user rather than just reporting the score. Also " +
+      "returns versionGuidance when relevant: if the latest " +
       "release is under 30 days old, it recommends the newest version that's cleared that observation window " +
       "instead — UNLESS the fresher release fixes a real vulnerability the older one has, which is verified via " +
       "version-scoped OSV lookups on both versions, never assumed from recency alone. Prefer recommend_package " +

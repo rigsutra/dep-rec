@@ -1,6 +1,7 @@
 import { listAllCategoryCounts, listByCategory, listAll, listNameDownloads } from "./store/db.js";
 import { getOrFetchPackage } from "./store/lookup.js";
 import { checkTyposquat } from "./store/typosquat.js";
+import { checkRecommendable, isRecommendable } from "./store/eligibility.js";
 
 // Crude free-text -> category mapping. A real version would need fuzzy
 // matching against package descriptions (not collected yet) or embeddings;
@@ -40,8 +41,18 @@ const SYNONYMS: Record<string, string> = {
   state: "state-management",
 };
 
+// Counts only what could actually be recommended. Reporting the raw tracked
+// count would overstate how much real choice a category offers.
 export async function listCategories(): Promise<Array<{ key: string; count: number }>> {
-  return listAllCategoryCounts();
+  const counts = new Map<string, number>();
+  for (const pkg of listAll()) {
+    if (!isRecommendable(pkg)) continue;
+    for (const c of pkg.categories) counts.set(c, (counts.get(c) ?? 0) + 1);
+  }
+  // Preserve every known category even if the gate emptied it, so a caller
+  // can still see it exists rather than silently losing it.
+  for (const { key } of listAllCategoryCounts()) if (!counts.has(key)) counts.set(key, 0);
+  return [...counts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => a.key.localeCompare(b.key));
 }
 
 function matchCategory(need: string, categoryKeys: string[]): string | null {
@@ -71,6 +82,7 @@ export interface RecommendResult {
   matchedCategory: string | null;
   recommendations: Recommendation[];
   caveats: string[];
+  excludedAsUnrecommendable?: number;
   note?: string;
 }
 
@@ -79,6 +91,14 @@ export async function recommend(input: RecommendInput): Promise<RecommendResult>
   const matched = matchCategory(input.need, categoryKeys);
 
   let candidates = matched ? listByCategory(matched) : listAll();
+
+  // Enforced here as well as at dataset-build time, because a package can
+  // degrade after it was collected — get deprecated, stop being released,
+  // lose adoption — and the refresh worker updates the data without anything
+  // otherwise stopping it from still being recommended.
+  const beforeGate = candidates.length;
+  candidates = candidates.filter(isRecommendable);
+  const excludedAsUnrecommendable = beforeGate - candidates.length;
 
   if (input.license) {
     const wanted = input.license.toLowerCase();
@@ -109,6 +129,7 @@ export async function recommend(input: RecommendInput): Promise<RecommendResult>
     matchedCategory: matched,
     recommendations: ranked,
     caveats,
+    excludedAsUnrecommendable,
     note: matched
       ? undefined
       : `No category matched "${input.need}" — ranked across the entire tracked dataset instead of one category. Known categories: ${categoryKeys.join(", ")}`,
@@ -140,6 +161,8 @@ export interface CheckPackageResult {
     targetWeeklyDownloads: number;
     reason: string;
   };
+  recommendable?: boolean;
+  notRecommendableBecause?: string[];
   note: string;
 }
 
@@ -173,6 +196,11 @@ export async function checkPackage(name: string): Promise<CheckPackageResult> {
   const storeDownloads = listNameDownloads();
   const typosquat = await checkTyposquat(row.name, row.weekly_downloads, storeDownloads);
 
+  // check_package answers for any package, including ones this tool would
+  // never put forward itself. Saying so explicitly is the point: "here is
+  // what I know, and no, I would not have recommended this."
+  const eligibility = checkRecommendable(row);
+
   return {
     name: row.name,
     found: true,
@@ -195,6 +223,8 @@ export async function checkPackage(name: string): Promise<CheckPackageResult> {
     typosquatWarning: typosquat.suspicious
       ? { targetPackage: typosquat.targetPackage!, targetWeeklyDownloads: typosquat.targetWeeklyDownloads!, reason: typosquat.reason! }
       : undefined,
+    recommendable: eligibility.eligible,
+    notRecommendableBecause: eligibility.eligible ? undefined : eligibility.failures,
     note: inCuratedDataset
       ? "In a known category — this score is ranked against real category competitors (see recommend_package for the full comparison)."
       : "Scored on an absolute scale — not ranked against category competitors since this package isn't in a known category. Now tracked in the store either way, and will be kept fresh by the background refresh worker.",

@@ -192,44 +192,118 @@ describe("rescoring the whole corpus in memory", () => {
 });
 
 describe("typosquat false-positive sweep across every tracked package", () => {
-  test("no meaningfully-adopted package in the corpus is flagged as a typosquat", async () => {
-    // The bar: anything with real adoption (>=10k weekly downloads) is a
-    // package people actually depend on, and accusing it is a defamation-shaped
-    // bug. This caught two genuine false positives — `rest` branded a squat of
-    // `jest`, and `js-logger` of `bs-logger` — both arbitrary single-character
-    // substitutions between unrelated legitimate names, now excluded by
-    // requiring substitutions to be keyboard-adjacent or visually confusable.
+  test("nothing this tool would actually recommend is flagged as a typosquat", async () => {
+    // This is the invariant that matters: the recommendable set and the
+    // typosquat-flagged set must be disjoint. Recommending something the same
+    // tool would warn about is self-contradictory.
+    //
+    // It caught two classes of bug. First, two genuine false positives —
+    // `rest` branded a squat of `jest`, `js-logger` of `bs-logger` — both
+    // arbitrary single-character substitutions between unrelated legitimate
+    // names, fixed by requiring substitutions to be keyboard-adjacent or
+    // visually confusable. Second, `csvparser` (86 weekly downloads, one
+    // hyphen from `csv-parser` at 3.3M) sitting in the curated "recommended"
+    // corpus at all, fixed by the eligibility gate.
+    const { isRecommendable } = await import("../src/store/eligibility.js");
     const accused: string[] = [];
     for (const r of allRows) {
-      if (r.weekly_downloads < 10_000) continue;
+      if (!isRecommendable(r)) continue;
       const res = await checkTyposquat(r.name, r.weekly_downloads, nameDownloads);
       if (res.suspicious) accused.push(`${r.name} (${r.weekly_downloads}/wk) -> ${res.targetPackage} (${res.targetWeeklyDownloads}/wk)`);
     }
-    assert.deepEqual(accused, [], `adopted packages branded as typosquats:\n  ${accused.join("\n  ")}`);
+    assert.deepEqual(accused, [], `recommendable packages branded as typosquats:\n  ${accused.join("\n  ")}`);
   });
 
-  test("any near-zero-adoption corpus entry that trips the detector is reported, not hidden", async () => {
-    // Entries with almost no adoption that sit one typo-shaped edit from a
-    // far more popular package are ambiguous: possibly real squats that npm's
-    // relevance search swept into the curated set, possibly just abandoned
-    // packages. Either way the detector firing on them is defensible — but a
-    // "recommended packages" corpus containing them is a collector-quality
-    // problem worth surfacing rather than asserting away.
+  test("squat-shaped entries still tracked in the store are all excluded from recommendation", async () => {
+    const { isRecommendable, checkRecommendable } = await import("../src/store/eligibility.js");
     const flagged: string[] = [];
     for (const r of allRows) {
-      if (r.weekly_downloads >= 10_000) continue;
       const res = await checkTyposquat(r.name, r.weekly_downloads, nameDownloads);
-      if (res.suspicious) flagged.push(`${r.name} (${r.weekly_downloads}/wk) -> ${res.targetPackage}`);
+      if (!res.suspicious) continue;
+      flagged.push(`${r.name} (${r.weekly_downloads}/wk) -> ${res.targetPackage}`);
+      assert.equal(
+        isRecommendable(r),
+        false,
+        `${r.name} is flagged as a squat of ${res.targetPackage} yet passes the recommendation gate`
+      );
     }
     if (flagged.length > 0) {
-      console.log(`\n  [corpus-quality] ${flagged.length} low-adoption curated entries look squat-shaped:`);
+      console.log(`\n  [tracked-but-never-recommended] ${flagged.length} squat-shaped entries remain queryable:`);
       for (const f of flagged) console.log(`    - ${f}`);
     }
-    // Guard against this becoming systemic rather than incidental.
+  });
+});
+
+describe("recommendation eligibility gate", () => {
+  test("the gate removes a substantial share of what npm's relevance search returned", async () => {
+    const { isRecommendable } = await import("../src/store/eligibility.js");
+    const eligible = allRows.filter(isRecommendable);
+    assert.ok(eligible.length > 0, "the gate cannot reject everything");
     assert.ok(
-      flagged.length <= 5,
-      `${flagged.length} curated entries look like typosquats — the collector's relevance filter needs a downloads floor`
+      eligible.length < allRows.length,
+      "premise check: the raw corpus really does contain unrecommendable entries"
     );
+    console.log(`\n  [eligibility] ${eligible.length}/${allRows.length} clear the recommendation bar`);
+  });
+
+  test("no package with negligible adoption is recommendable", async () => {
+    const { isRecommendable, MIN_WEEKLY_DOWNLOADS } = await import("../src/store/eligibility.js");
+    const slipped = allRows
+      .filter((r) => r.weekly_downloads < MIN_WEEKLY_DOWNLOADS && isRecommendable(r))
+      .map((r) => `${r.name} (${r.weekly_downloads}/wk)`);
+    assert.deepEqual(slipped, []);
+  });
+
+  test("no deprecated package is recommendable", async () => {
+    const { isRecommendable } = await import("../src/store/eligibility.js");
+    const slipped = allRows.filter((r) => r.deprecated && isRecommendable(r)).map((r) => r.name);
+    assert.deepEqual(slipped, []);
+  });
+
+  test("no brand-new package is recommendable", async () => {
+    const { isRecommendable, MIN_AGE_DAYS } = await import("../src/store/eligibility.js");
+    const slipped: string[] = [];
+    for (const r of allRows) {
+      if (!r.created_at) continue;
+      const age = (Date.now() - new Date(r.created_at).getTime()) / 86_400_000;
+      if (age < MIN_AGE_DAYS && isRecommendable(r)) slipped.push(`${r.name} (${Math.round(age)}d old)`);
+    }
+    assert.deepEqual(slipped, [], "a package with no track record must not be recommended");
+  });
+
+  test("a widely-adopted but slow-releasing package is still recommendable (stable, not abandoned)", async () => {
+    const { isRecommendable } = await import("../src/store/eligibility.js");
+    const redux = allRows.find((r) => r.name === "redux");
+    if (redux) {
+      const staleDays = redux.modified_at ? (Date.now() - new Date(redux.modified_at).getTime()) / 86_400_000 : 0;
+      assert.ok(staleDays > 730, `premise check: redux should be >730d stale, is ${Math.round(staleDays)}d`);
+      assert.equal(isRecommendable(redux), true, "redux (~39M weekly downloads) is stable, not abandoned");
+    }
+  });
+
+  test("every category retains a usable comparison set after the gate", async () => {
+    const { isRecommendable } = await import("../src/store/eligibility.js");
+    const thin: string[] = [];
+    for (const cat of categoryKeys) {
+      const n = allRows.filter((r) => r.categories.includes(cat) && isRecommendable(r)).length;
+      if (n < 5) thin.push(`${cat}=${n}`);
+    }
+    assert.deepEqual(thin, [], "a category with almost no eligible members cannot support a ranked recommendation");
+  });
+
+  test("the gate is deterministic and its failures are explained", async () => {
+    const { checkRecommendable } = await import("../src/store/eligibility.js");
+    for (const r of allRows.slice(0, 100)) {
+      const a = checkRecommendable(r);
+      const b = checkRecommendable(r);
+      assert.deepEqual(a, b);
+      if (!a.eligible) {
+        assert.ok(a.failures.length > 0, `${r.name}: rejected without saying why`);
+        for (const f of a.failures) assert.ok(f.trim().length > 0);
+      } else {
+        assert.deepEqual(a.failures, []);
+      }
+    }
   });
 
   test("the sweep completes in reasonable time (variant generation is on the hot path)", async () => {

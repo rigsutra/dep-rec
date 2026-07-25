@@ -2,7 +2,7 @@
 
 Adversarial by design. The goal is not to demonstrate that the code works —
 it is to find the places where it lies, crashes, or quietly does the wrong
-thing. Six suites, ~330 scenarios, >1000 packages exercised.
+thing. Six suites, 372 scenarios, >1000 packages exercised.
 
 ```bash
 npm test            # everything
@@ -82,13 +82,29 @@ All of these were real, in shipped or about-to-ship code, and are now fixed:
    cooldown-safe version — offering an rc in place of a stable release inverts
    the entire point of the cooldown.
 
+8. **Unrecommendable packages sat in the "recommended" corpus.** The suite
+   originally reported this as a collector-quality finding rather than a bug:
+   `csvparser` (86 weekly downloads, one hyphen from `csv-parser` at 3.3M) was
+   in the curated dataset *and* tripped the typosquat detector — the tool would
+   both recommend it and warn about it. Measuring the whole corpus showed the
+   scale: **211 of 499 entries** failed a basic recommendation bar, including
+   packages with 2–6 weekly downloads, several abandoned for 4+ years, and a
+   158-day-old package that was *leading* the web-framework category.
+   Fixed with an explicit eligibility gate (`src/store/eligibility.ts`):
+   deprecated, under 10k weekly downloads, under 180 days old, or no release in
+   ~2 years disqualifies a package from being recommended. It is enforced at
+   serve time as well as at dataset-build time, because a package can degrade
+   after collection. Staleness is adoption-aware — `redux` has ~39M weekly
+   downloads and had not released in 810 days, which reads as stable rather
+   than abandoned, so a higher limit applies above 5M downloads. The
+   recommendable set and the typosquat-flagged set are now asserted disjoint.
+
 ## Known-wrong things the suite deliberately does not assert away
 
-- **`csvparser`** (86 weekly downloads, one hyphen from `csv-parser` at 3.3M)
-  sits in the curated corpus and trips the detector. That is arguably a correct
-  detection; the real problem is that npm's relevance search swept a
-  near-zero-adoption package into a "recommended packages" dataset. The corpus
-  test reports it as a collector-quality finding rather than hiding it, and
-  fails only if it becomes systemic (>5 such entries).
 - The 24h cache window means a CVE disclosed in the last day can be masked on a
   cached lookup. `servedFrom: "cache"` discloses the provenance but not the age.
+- One squat-shaped entry (`csvparser`) is still *tracked* and answerable via
+  `check_package` — deliberately, since answering "is this package any good?"
+  for an obscure name is the tool's purpose. It is excluded from
+  recommendations and the suite asserts that, printing it under
+  `[tracked-but-never-recommended]`.

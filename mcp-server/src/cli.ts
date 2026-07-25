@@ -55,6 +55,12 @@ async function runCheck(rest: string[]): Promise<void> {
             `    ${result.versionGuidance.reason}`,
           ]
         : []),
+      ...(result.recommendable === false
+        ? [
+            `  NOT RECOMMENDATION-GRADE — this tool would not put this package forward:`,
+            ...result.notRecommendableBecause!.map((r) => `    - ${r}`),
+          ]
+        : []),
       `  ${result.note}`,
     ];
     return lines.join("\n");
