@@ -13,6 +13,7 @@
 // for two copies of the same formula to drift apart.
 
 import type { PackageRow } from "./db.js";
+import { applyCapabilityCaveat } from "./capability-caveats.js";
 
 export interface ScoreResult {
   total: number;
@@ -130,7 +131,8 @@ export function scoreCategoryGroup(rows: PackageRow[]): Map<string, ScoreResult>
     const community = clamp(downloadPct.get(r.name) ?? 50);
     const supplyChain = supplyChainScore(r.dependencies_count, r.has_install_scripts, reasons);
 
-    const total = 0.25 * security + 0.25 * maintenance + 0.2 * compatibility + 0.2 * community + 0.1 * supplyChain;
+    const rawTotal = 0.25 * security + 0.25 * maintenance + 0.2 * compatibility + 0.2 * community + 0.1 * supplyChain;
+    const total = clamp(rawTotal - applyCapabilityCaveat(r.name, reasons));
     results.set(r.name, {
       total: Math.round(total * 10) / 10,
       security: Math.round(security),
@@ -160,7 +162,8 @@ export function scoreAbsolute(r: PackageRow): ScoreResult {
   const community = clamp(Math.log10(r.weekly_downloads + 1) * 14);
   const supplyChain = supplyChainScore(r.dependencies_count, r.has_install_scripts, reasons);
 
-  const total = 0.25 * security + 0.25 * maintenance + 0.2 * compatibility + 0.2 * community + 0.1 * supplyChain;
+  const rawTotal = 0.25 * security + 0.25 * maintenance + 0.2 * compatibility + 0.2 * community + 0.1 * supplyChain;
+  const total = clamp(rawTotal - applyCapabilityCaveat(r.name, reasons));
   return {
     total: Math.round(total * 10) / 10,
     security: Math.round(security),

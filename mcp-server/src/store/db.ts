@@ -88,6 +88,14 @@ export function listStalest(limit: number): PackageRow[] {
     .map(rowToPackage);
 }
 
+export function listNameDownloads(): Map<string, number> {
+  const rows = getDb().prepare("SELECT name, weekly_downloads FROM packages").all() as Array<{
+    name: string;
+    weekly_downloads: number;
+  }>;
+  return new Map(rows.map((r) => [r.name, r.weekly_downloads]));
+}
+
 export function listAllCategoryCounts(): Array<{ key: string; count: number }> {
   const rows = getDb().prepare("SELECT categories FROM packages").all() as Array<{ categories: string }>;
   const counts = new Map<string, number>();

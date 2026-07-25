@@ -172,11 +172,11 @@ more below) — publishing something and then keeping it honestly
 maintained is the actual model here, not "get it perfect before anyone
 can touch it."
 
-## Post-publish security review — v0.1.1
+## Post-publish security review — v0.1.1 → v0.1.2
 
 An external review against the actually-shipped `0.1.0` source turned up
-eight issues. Five are fixed in `0.1.1`; two are real, known, and
-deliberately deferred; one was already self-disclosed.
+eight issues. All seven real ones are now fixed (five in `0.1.1`, the
+remaining two in `0.1.2`); one was already self-disclosed and unchanged.
 
 **Fixed:**
 
@@ -238,22 +238,34 @@ deliberately deferred; one was already self-disclosed.
    bumping its own `@hono/node-server` range; tracking that, not claiming
    it's fully resolved.
 
-**Known, not yet fixed — real gaps, deliberately deferred:**
-
-- **No name-similarity typosquat detection.** `check_package` only flags
-  "likely hallucinated or typosquatted" on a registry 404. A resolvable
-  typosquat (a real, installable package with a name close to a popular
-  one) gets scored like any ordinary package — reproduced live with
-  `check reactt` (real package, 61 weekly downloads, 1 maintainer, no
-  edit-distance check anywhere flags its resemblance to `react`). This is
-  the actual attack pattern, and the gap the whole project started from.
-- **No decode-vs-verify distinction within a category.** `recommend "jwt
-  library"` returns `jwt-decode` as the #1 pick — but that library
-  explicitly does not verify signatures, it only decodes. The
-  category-matching has no concept of "capability" beyond the coarse
-  category label, so it can't tell "decode-only" apart from "full
-  auth verification" within `auth-jwt`. A real foot-gun if someone takes
-  the top recommendation at face value for an actual auth flow.
+6. **No name-similarity typosquat detection (`0.1.2`).**
+   `check_package` only flagged "likely hallucinated or typosquatted" on a
+   registry 404 — a resolvable typosquat (a real, installable package
+   with a name one character off from a popular one) sailed through with
+   an ordinary score. `store/typosquat.ts` now generates every
+   edit-distance-1 variant of the checked name (deletion, substitution,
+   insertion, transposition — cheap, pure string ops) and checks it
+   against every name already in the store plus a small curated list of
+   famous packages outside the 10 categories (`react`, `vue`, `lodash`,
+   `webpack`, etc.). Flags only when the matched name is both absolutely
+   popular (≥1M weekly downloads) and drastically more popular (≥100x)
+   than the checked package — two obscure packages one typo apart isn't
+   suspicious on its own. Verified against the exact reported case:
+   `check reactt` now returns a `typosquatWarning` pointing at `react`
+   (162,709,618 weekly downloads vs. 61) — and a real, popular package
+   like `zod` correctly produces no warning.
+7. **No decode-vs-verify distinction within a category (`0.1.2`).**
+   `recommend "jwt library"` returned `jwt-decode` as the #1 pick despite
+   its own docs stating it does not verify signatures. Rather than try to
+   automatically infer "capability" (would need real API-surface or
+   README analysis), added a small, deliberately manual annotation map
+   (`store/capability-caveats.ts`) — currently just `jwt-decode` — that
+   prepends an explicit warning to its `reasons` and applies a modest
+   score penalty (-15). Verified: `jwt-decode` dropped from 93 to 78 and
+   out of the top 5 for "jwt library" entirely; `jose` (a real verify/sign
+   library) is now the top pick. This is intentionally a small, growable
+   list, not a general fix — extend it the same way this entry was added
+   if another mismatch like it is found.
 
 **Already self-disclosed, unchanged:** the `node:sqlite` experimental
 warning on every invocation, and the 24h cache window meaning a

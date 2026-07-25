@@ -45,7 +45,8 @@ async function runCheck(rest: string[]): Promise<void> {
       return `✗ ${result.name} — ${result.reason}\n  ${result.note}`;
     }
     const lines = [
-      `${result.score! >= 70 ? "✓" : "!"} ${result.name}  score ${result.score}  [${result.servedFrom}]`,
+      `${result.typosquatWarning ? "🚨" : result.score! >= 70 ? "✓" : "!"} ${result.name}  score ${result.score}  [${result.servedFrom}]`,
+      ...(result.typosquatWarning ? [`  TYPOSQUAT WARNING: ${result.typosquatWarning.reason}`] : []),
       `  license: ${result.npm!.license ?? "unknown"}  maintainers: ${result.npm!.maintainers}  deps: ${result.npm!.dependenciesCount}  weekly downloads: ${result.weeklyDownloads!.toLocaleString("en-US")}`,
       ...result.reasons!.map((r) => `  - ${r}`),
       ...(result.versionGuidance

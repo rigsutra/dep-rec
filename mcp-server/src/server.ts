@@ -62,7 +62,11 @@ server.registerTool(
       "stale one is fetched live, stored, and from then on kept fresh by a background refresh job — so the first " +
       "person to ask about a package pays the fetch cost, not everyone after them. If the name doesn't resolve on " +
       "the npm registry at all, treat that as a strong signal it may be hallucinated or typosquatted — verify " +
-      "before installing anything with that name. Also returns versionGuidance when relevant: if the latest " +
+      "before installing anything with that name. Even when it DOES resolve, check the returned typosquatWarning: " +
+      "a resolvable, installable package with a name one character off from a much more popular one (e.g. " +
+      "'reactt' vs 'react') is the actual typosquat attack pattern, not just nonexistent names — if present, treat " +
+      "it as seriously as a 404 and confirm the name was really intended before installing. Also returns " +
+      "versionGuidance when relevant: if the latest " +
       "release is under 30 days old, it recommends the newest version that's cleared that observation window " +
       "instead — UNLESS the fresher release fixes a real vulnerability the older one has, which is verified via " +
       "version-scoped OSV lookups on both versions, never assumed from recency alone. Prefer recommend_package " +

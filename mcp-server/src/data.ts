@@ -1,5 +1,6 @@
-import { listAllCategoryCounts, listByCategory, listAll } from "./store/db.js";
+import { listAllCategoryCounts, listByCategory, listAll, listNameDownloads } from "./store/db.js";
 import { getOrFetchPackage } from "./store/lookup.js";
+import { checkTyposquat } from "./store/typosquat.js";
 
 // Crude free-text -> category mapping. A real version would need fuzzy
 // matching against package descriptions (not collected yet) or embeddings;
@@ -134,6 +135,11 @@ export interface CheckPackageResult {
     recommendedVersion: string;
     reason: string;
   };
+  typosquatWarning?: {
+    targetPackage: string;
+    targetWeeklyDownloads: number;
+    reason: string;
+  };
   note: string;
 }
 
@@ -159,6 +165,14 @@ export async function checkPackage(name: string): Promise<CheckPackageResult> {
   const row = result.row!;
   const inCuratedDataset = row.categories.length > 0;
 
+  // A resolvable typosquat — a real, installable package one character
+  // off from something hugely popular — is the actual attack pattern.
+  // Checked against every name in our own store plus a small curated
+  // list of famous packages outside the 10 categories, so this doesn't
+  // depend on the checked name already being known-bad.
+  const storeDownloads = listNameDownloads();
+  const typosquat = await checkTyposquat(row.name, row.weekly_downloads, storeDownloads);
+
   return {
     name: row.name,
     found: true,
@@ -178,6 +192,9 @@ export async function checkPackage(name: string): Promise<CheckPackageResult> {
       row.recommended_version && row.version_guidance
         ? { recommendedVersion: row.recommended_version, reason: row.version_guidance }
         : undefined,
+    typosquatWarning: typosquat.suspicious
+      ? { targetPackage: typosquat.targetPackage!, targetWeeklyDownloads: typosquat.targetWeeklyDownloads!, reason: typosquat.reason! }
+      : undefined,
     note: inCuratedDataset
       ? "In a known category — this score is ranked against real category competitors (see recommend_package for the full comparison)."
       : "Scored on an absolute scale — not ranked against category competitors since this package isn't in a known category. Now tracked in the store either way, and will be kept fresh by the background refresh worker.",
