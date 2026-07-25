@@ -29,7 +29,11 @@ without going through MCP at all.
 - **`recommend_package`** — given a plain-language need (`"JWT library"`,
   `"csv parser"`), optional runtime/license constraints, and a result limit,
   returns ranked candidates from the curated dataset, scored *relative to
-  their actual category competitors*.
+  their actual category competitors*. For a need **outside** the ten curated
+  categories (`"pdf"`, `"qr code"`, `"web scraping"`) it searches npm live,
+  fetches and scores each candidate with the same checks, and returns them
+  marked `discoveredVia: "npm-search"` — see
+  [Beyond the ten categories](#beyond-the-ten-categories-npm-search-discovery).
 - **`check_package`** — look up and score **any** npm package by name, not
   limited to the curated set. Served from the store if already tracked and
   fresh (no network call); fetched live, stored, and scored otherwise. A
@@ -107,6 +111,57 @@ npm run seed-db   # imports stage1-collector/data/packages.json, then scores eve
 regenerate it with `seed-db` (for the curated baseline) whenever
 `stage1-collector`'s output changes, not by hand-editing the database.
 
+## Running the CLI locally as `dep-rec`
+
+To use the real command name instead of `npx`, link the built package once:
+
+```bash
+npm run build
+npm link
+```
+
+`dep-rec` is then on your PATH from any directory. **One trap worth knowing
+about:** a linked install points at this repo's own `data/store.db`, so
+every lookup writes into the artifact that ships inside the package —
+`dep-rec check chalk` from a scratch directory added `chalk` to it as row
+500 the first time this was tried. Use a scratch store while developing:
+
+```bash
+cp data/store.db /tmp/mystore.db
+dep-rec check express --db /tmp/mystore.db
+dep-rec recommend "pdf" --db /tmp/mystore.db
+```
+
+`--db` and `DEP_REC_DB_PATH` do the same thing. `npm unlink -g dep-rec`
+removes the link.
+
+### About the SQLite warning
+
+Node used to print this on every single invocation:
+
+```
+(node:24808) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+```
+
+That is Node telling *us* that an API we chose is experimental — it is not
+something a user of the CLI can act on, and it was the first line of every
+run. It is now filtered, narrowly:
+[`src/quiet-sqlite-warning.ts`](src/quiet-sqlite-warning.ts) suppresses
+that one warning and nothing else, rather than reaching for
+`NODE_NO_WARNINGS=1` and hiding real deprecations along with it.
+
+Getting it to actually work needed one non-obvious change. ES modules link
+the entire graph before evaluating any of it, so a static
+`import { DatabaseSync } from "node:sqlite"` fires the warning before a
+single line of our code has run — the filter was installed too late to
+catch anything. `store/db.ts` now loads `node:sqlite` on first use instead,
+with a type-only import for the types.
+
+The underlying tradeoff is unchanged and still disclosed: `node:sqlite`
+requires Node 22+ and its API can change. Silencing the warning does not
+make that go away, it just stops repeating it at someone who has no say in
+it.
+
 ## Try it from source (fast local loop)
 
 ```bash
@@ -128,7 +183,7 @@ would be.
 
 ```bash
 npm run build        # tsc -> dist/, shebang preserved on dist/server.js
-npm pack              # produces dep-rec-0.2.0.tgz — exactly what
+npm pack              # produces dep-rec-0.3.0.tgz — exactly what
                       # `npm publish` would upload, done locally
 ```
 
@@ -447,6 +502,89 @@ The holder now keeps the lock until explicitly told to let go, the writer
 announces itself before blocking, and the test asserts it genuinely
 waited — a version that can't pass by accident.
 
+## Beyond the ten categories: npm-search discovery
+
+This started as a question — *"if we can search, why are we limited to ten
+categories?"* — asked after seeing what `recommend "pdf"` actually returned:
+
+```
+1. vitest   94.4      2. jose  93.6      3. hono  93.5
+4. xstate   92.3      5. zod   91.9
+```
+
+A test runner, a JWT library, a web framework, a state machine and a
+validator, each ranked, scored and explained as though it answered a
+question about PDFs. The only thing distinguishing that from a genuine
+recommendation was a `note`, and `caveats` was empty. By this project's own
+rule — *a missed detection is a documented gap, a confident wrong answer is
+a bug* — that is a bug.
+
+The question was also the answer: `stage1-collector` builds the ten
+categories **from npm's search API**, so the same call can run on demand.
+An uncovered need now searches npm, fetches each candidate, scores it with
+the identical security/maintenance/adoption checks, stores it, and returns
+what clears the bar:
+
+```
+$ dep-rec recommend "pdf"
+1. @react-pdf/pdfkit  81.4     2. @react-pdf/renderer  90.8
+3. pdf-merger-js      80.8     4. ng2-pdf-viewer       69.6
+```
+
+Three things had to be got right, and each was wrong first:
+
+- **Do not re-rank by score.** Sorting discovered candidates by health score
+  promoted `@react-pdf/font`, `/fns` and `/svg` — internal sub-packages of
+  `@react-pdf/renderer` that nobody installs directly — above `pdf-lib`,
+  purely because small single-purpose modules score well on dependency count
+  and TypeScript support. npm's relevance ranking already answers "which of
+  these is the thing people mean" far better than a health score can.
+  Relevance is npm's job; screening for security, maintenance and adoption
+  is this tool's. Doing only the second, and saying so, beats doing both
+  badly.
+- **Filter supporting packages.** `@react-pdf/types` ("React-pdf TypeScript
+  definitions") is not an answer to "I need a PDF library", for the same
+  reason `@types/*` never was. A scoped package whose description says it is
+  *for* its own scope is a component of that project.
+- **Require the result to be about the question.** npm's relevance is weak
+  for some phrasings: `"send email"` produced a set whose only survivor of
+  the health bar was `monocart-reporter`, a Playwright test reporter whose
+  long description mentions email far down. Matching only the first 120
+  characters of a description — a package leads with what it is for — fixes
+  that. `"send email"` now honestly returns nothing.
+
+**The keyword matcher had the same disease.** `"web scraping"` contains
+"web", so the synonym map claimed the web-framework category and answered
+with `hono`, `@nestjs/swagger` and `@expressots/core`. A wrong category is
+worse than no category — especially now, when no category falls through to
+a search that finds actual scrapers. A match now only stands when every
+significant word in the need is accounted for; one unrecognised word
+("scraping") means the map is not competent to answer and something that is
+gets the question.
+
+| need | route | result |
+|---|---|---|
+| `jwt library` | curated `auth-jwt` | jose, @vonage/jwt, … |
+| `csv parser` | curated `csv-parsing` | csv-parse, fast-csv, … |
+| `pdf` | npm-search | @react-pdf/pdfkit, @react-pdf/renderer, … |
+| `qr code` | npm-search | react-qr-code, qr-code-styling, … |
+| `web scraping` | npm-search | firecrawl-aisdk |
+| `send email` | npm-search | *(nothing cleared the bar)* |
+
+Discovered results are deliberately marked as second-class:
+`matchedCategory: null`, `discoveredVia: "npm-search"`, and a caveat saying
+the ordering is npm's relevance rather than a percentile against a curated
+competitor set. The tool description instructs the model to present them as
+a screened shortlist to verify, not a verdict. First call for a new domain
+is slow — it fetches up to 12 packages — and every one is stored, so the
+next caller is served from disk.
+
+Two honest limits remain. `pdf-lib` (9.9M weekly downloads) is excluded for
+having shipped nothing in 1535 days, which is the staleness bar working as
+configured but will surprise people. And `@react-pdf/pdfkit` still ranks
+first for "pdf" because its description ("A PDF generation library for
+Node.js") gives no hint it is an internal fork.
+
 ## Stress testing (`npm run stress`)
 
 Separate from the test suite, and with a different job. A test suite
@@ -695,7 +833,7 @@ npm run test:gaps    # what the spec claimed but was never built
 npm run test:review  # regressions for every externally-reported finding
 ```
 
-420 adversarial scenarios across >1000 packages, using `node:test` only (no
+426 adversarial scenarios across >1000 packages, using `node:test` only (no
 framework dependency). Every suite runs against a temp copy of the store, so
 tests can never corrupt the shipped `data/store.db`.
 

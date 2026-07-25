@@ -95,6 +95,45 @@ async function fetchWithRetry(url: string, init: RequestInit, onThrottle?: () =>
   return lastStatus > 0 ? new Response(null, { status: lastStatus }) : null;
 }
 
+export interface SearchHit {
+  name: string;
+  description: string | null;
+  /** npm's own blended relevance score, 0-1. Used only for ordering candidates. */
+  searchScore: number;
+}
+
+/**
+ * npm's registry search, the same call `stage1-collector` uses to build the
+ * curated categories — just run live instead of ahead of time. This is what
+ * lets a need outside the ten categories still get real candidates rather
+ * than a refusal.
+ *
+ * Weighted towards popularity and quality over pure text relevance, matching
+ * the collector, because the goal is "packages people actually use for this"
+ * rather than "packages whose README mentions this most often".
+ */
+export async function searchPackages(query: string, size = 20): Promise<SearchHit[]> {
+  const url = `${REGISTRY}/-/v1/search?text=${encodeURIComponent(query)}&size=${size}&popularity=1.0&quality=0.4&maintenance=0.2`;
+  const res = await fetchWithRetry(url, { headers: { "User-Agent": UA, Accept: "application/json" } });
+  if (res === null || !res.ok) return [];
+  try {
+    const data = (await res.json()) as {
+      objects?: Array<{ package?: { name?: string; description?: string }; score?: { final?: number } }>;
+    };
+    return (data.objects ?? [])
+      .map((o) => ({
+        name: o.package?.name ?? "",
+        description: o.package?.description ?? null,
+        searchScore: o.score?.final ?? 0,
+      }))
+      // @types/* are declaration packages, never the thing someone wants
+      // recommended for a functional need.
+      .filter((h) => h.name.length > 0 && !h.name.startsWith("@types/"));
+  } catch {
+    return [];
+  }
+}
+
 export interface VersionEntry {
   version: string;
   releasedAt: string;

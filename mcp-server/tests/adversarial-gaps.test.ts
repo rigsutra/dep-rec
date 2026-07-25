@@ -328,16 +328,30 @@ describe("Scoring model honesty", () => {
     const r = await mcp.call("recommend_package", { need: "verify a signed token from an identity provider" });
     const matched = r.json.matchedCategory;
     record("semantic/paraphrase category matching", matched === "auth-jwt", matched === "auth-jwt" ? "" : `matched ${matched} instead of auth-jwt`);
-    // Must still answer coherently even when it misunderstands.
-    assert.ok(r.json.recommendations.length > 0);
-    if (matched === null) assert.match(r.json.note, /No category matched/i, "a miss must be disclosed, not hidden");
+    // "Coherently" used to mean "return something anyway". It now means the
+    // opposite: a paraphrase the synonym map cannot resolve produces no
+    // recommendations at all, because five confidently-scored packages from
+    // an unrelated category is a worse answer than none.
+    if (matched === null) {
+      // A paraphrase the keyword map cannot resolve is now routed to live npm
+      // discovery rather than answered from an unrelated category. Whatever
+      // comes back must be labelled as discovered, not passed off as curated.
+      assert.equal(r.json.discoveredVia, "npm-search", "an unresolved need must fall through to discovery");
+      assert.ok(r.json.caveats.length > 0, "discovered results must carry the not-a-curated-category caveat");
+      assert.match(r.json.note, /No .*category matched/i, "a miss must be disclosed, not hidden");
+    } else {
+      assert.ok(r.json.recommendations.length > 0, "a matched category must still produce results");
+    }
   });
 
   test("an unmatched query never presents whole-corpus results as category-matched", async () => {
     const r = await mcp.call("recommend_package", { need: "flux capacitor calibration" });
     if (r.json.matchedCategory === null) {
-      assert.ok(r.json.note, "a corpus-wide fallback must be disclosed");
-      assert.match(r.json.note, /entire tracked dataset|No category matched/i);
+      assert.ok(r.json.note, "an unmatched need must be disclosed");
+      assert.match(r.json.note, /No .*category matched/i);
+      // The corpus-wide fallback is gone: nothing may be returned that was
+      // not selected for this need specifically.
+      assert.equal(r.json.discoveredVia, "npm-search");
     }
   });
 });

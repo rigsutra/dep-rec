@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { REPO_ROOT, runCli, openMcp, cleanEnv, row } from "./helpers.js";
 import { PACKAGES_COLUMNS } from "../src/store/schema.js";
 import { checkTyposquat } from "../src/store/typosquat.js";
-import { normalizeLimit, MAX_LIMIT, checkPackage } from "../src/data.js";
+import { normalizeLimit, MAX_LIMIT, checkPackage, recommend } from "../src/data.js";
 import { validatePackageName, fetchPackageDoc, fetchWeeklyDownloads } from "../src/sources/npm.js";
 import { isRecommendable, checkRecommendable } from "../src/store/eligibility.js";
 
@@ -217,6 +217,85 @@ describe("#8 unknown adoption must never be treated as zero", () => {
   test("a carried-over count from a previous good fetch still counts", () => {
     // Keeping the last real figure is the point of not writing a zero.
     assert.equal(isRecommendable(row({ weekly_downloads: 5_000_000, downloads_check_failed: true })), true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #9 — an uncovered domain got five confident, unrelated answers
+// ---------------------------------------------------------------------------
+
+describe("#9 a need outside the ten categories must return nothing", () => {
+  // Found by asking the obvious question: what happens if I want a PDF
+  // library? The answer was vitest, jose, hono, xstate and zod — a test
+  // runner, a JWT library, a web framework, a state machine and a validator,
+  // each ranked and scored as though it answered. Only a `note` said
+  // otherwise, and `caveats` was empty. By this project's own rule that is a
+  // bug, not a gap: a missed detection is a documented gap, a confident
+  // wrong answer is a bug.
+  // The corpus-wide top scorers, i.e. exactly what the old fallback returned
+  // for any unmatched need regardless of what was asked.
+  const CORPUS_TOP_SCORERS = ["vitest", "jose", "hono", "xstate", "zod"];
+
+  // Live: each of these searches npm and then fetches every candidate, so the
+  // list is kept short deliberately. The stress harness covers breadth.
+  const UNCOVERED = ["pdf", "qr code"];
+
+  for (const need of UNCOVERED) {
+    test(`"${need}" is answered by discovery, never by unrelated corpus leaders`, async () => {
+      const r = await recommend({ need });
+      assert.equal(r.matchedCategory, null, `premise: "${need}" is outside the curated categories`);
+      assert.equal(r.discoveredVia, "npm-search", "an uncovered need must be routed to live discovery");
+      assert.ok(r.caveats.length > 0, "discovered results need the not-a-curated-category caveat");
+      assert.match(r.caveats[0], /not one of the .* curated categories/i);
+
+      const returned = r.recommendations.map((x) => x.package);
+      const leaked = returned.filter((p) => CORPUS_TOP_SCORERS.includes(p));
+      assert.deepEqual(leaked, [], `answered "${need}" with corpus-wide top scorers: ${leaked.join(", ")}`);
+    });
+  }
+
+  test("discovered candidates actually relate to what was asked", async () => {
+    const r = await recommend({ need: "pdf" });
+    if (r.recommendations.length === 0) return; // eligibility may exclude everything; that is honest
+    assert.ok(
+      r.recommendations.every((x) => /pdf/i.test(x.package)),
+      `expected PDF packages, got: ${r.recommendations.map((x) => x.package).join(", ")}`
+    );
+  });
+
+  test("a wrong category match is refused rather than guessed", async () => {
+    // "web scraping" contains "web", which the synonym map used to resolve to
+    // the web-framework category — answering a scraping question with hono
+    // and @nestjs/swagger. One unrecognised word now invalidates the match.
+    const r = await recommend({ need: "web scraping" });
+    assert.equal(r.matchedCategory, null, "'scraping' is not a word this map knows, so it must not claim a match");
+    assert.equal(r.discoveredVia, "npm-search");
+  });
+
+  test("covered needs are unaffected", async () => {
+    for (const [need, expected] of [
+      ["jwt library", "auth-jwt"],
+      ["csv parser", "csv-parsing"],
+      ["orm", "orm-database"],
+      ["testing", "testing"],
+    ] as const) {
+      const r = await recommend({ need, limit: 3 });
+      assert.equal(r.matchedCategory, expected);
+      assert.ok(r.recommendations.length > 0, `${need} lost its results`);
+    }
+  });
+
+  test("the tool description warns the model about limited coverage", async () => {
+    const mcp = await openMcp({ dbPath: storePath });
+    try {
+      const { tools } = await mcp.listTools();
+      const d = tools.find((t: any) => t.name === "recommend_package").description as string;
+      assert.match(d, /CURATED|ten categories/i);
+      assert.match(d, /discoveredVia/, 'must tell the model how to spot a discovered result');
+      assert.match(d, /screened shortlist/i, 'must say discovered results are not a ranked verdict');
+    } finally {
+      await mcp.close();
+    }
   });
 });
 

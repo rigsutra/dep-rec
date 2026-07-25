@@ -225,11 +225,12 @@ describe("CLI — recommend", () => {
     assert.match(r.stderr, /runtime/i);
   });
 
-  test("an unmatched need falls back across the corpus and says so", async () => {
-    const r = await runCli(["recommend", "quantum flux capacitor harness", "--json"], { dbPath });
+  test("an unmatched need is routed to discovery and says so", async () => {
+    const r = await runCli(["recommend", "quantum flux capacitor harness", "--json"], { dbPath, timeoutMs: 120_000 });
     assert.equal(r.json.matchedCategory, null);
-    assert.match(r.json.note, /No category matched/i);
-    assert.ok(r.json.note.includes("auth-jwt"), "the note should list the categories that do exist");
+    assert.equal(r.json.discoveredVia, "npm-search");
+    assert.match(r.json.note, /No .*category matched/i);
+    assert.ok(r.json.caveats.some((x) => x.includes("auth-jwt")), "the caveat should list the categories that do exist");
   });
 
   test("missing need argument exits non-zero", async () => {

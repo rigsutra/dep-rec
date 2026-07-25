@@ -5,9 +5,24 @@
 // this layer is "check once, serve everyone else from what's stored, and
 // refresh it in the background" — a real query-able store, not a snapshot.
 
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { SCHEMA_SQL, migratePackagesTable } from "./schema.js";
+
+// `node:sqlite` is loaded on first use rather than imported at the top of
+// this file, and the import above is type-only so it disappears at compile
+// time. The reason is ordering: ES modules link the entire graph before
+// evaluating any of it, so a static `import ... from "node:sqlite"` fires
+// Node's "SQLite is an experimental feature" warning before a single line of
+// our code — including the filter in quiet-sqlite-warning.ts — has run.
+// Deferring the load until getDb() puts it after that filter is installed.
+type SqliteModule = { DatabaseSync: new (path: string) => DatabaseSync };
+let sqlite: SqliteModule | null = null;
+function loadSqlite(): SqliteModule {
+  if (!sqlite) sqlite = createRequire(import.meta.url)("node:sqlite") as SqliteModule;
+  return sqlite;
+}
 
 // Overridable so tests (and anyone wanting a separate store per project)
 // don't mutate the store.db that ships inside the package.
@@ -33,7 +48,7 @@ const BUSY_TIMEOUT_MS = Number(process.env.DEP_REC_BUSY_TIMEOUT_MS ?? 10_000);
 let dbInstance: DatabaseSync | null = null;
 function getDb(): DatabaseSync {
   if (!dbInstance) {
-    const db = new DatabaseSync(resolveDbPath());
+    const db = new (loadSqlite().DatabaseSync)(resolveDbPath());
     // Set before anything else: switching journal mode itself takes a lock,
     // so a busy_timeout applied afterwards would be too late to protect the
     // one statement most likely to collide on a cold concurrent start.

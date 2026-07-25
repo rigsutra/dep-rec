@@ -9,6 +9,8 @@
 // for why that was worth doing rather than shipping a default install with
 // an unpatchable advisory in it.
 
+// Must come first: installs the filter before node:sqlite is ever touched.
+import "./quiet-sqlite-warning.js";
 import { listCategories, recommend, checkPackage, MAX_LIMIT } from "./data.js";
 import { createServer, type ToolSpec } from "./mcp/protocol.js";
 
@@ -33,7 +35,17 @@ const TOOLS: ToolSpec[] = [
       "recommendation bar are considered at all — deprecated, barely-adopted (<10k weekly downloads), brand-new " +
       "(<30 days) and unmaintained (no release in ~1000 days) packages are excluded rather than merely scored " +
       "low, because putting them forward would undermine the point of the recommendation. Always cite the " +
-      "returned `reasons` when explaining a recommendation; never invent a score or reason of your own.",
+      "returned `reasons` when explaining a recommendation; never invent a score or reason of your own. " +
+      "Ten categories are CURATED (call list_categories); those answers are percentile-ranked against a real " +
+      "competitor set. Any other need — PDF generation, image processing, QR codes, scraping — is answered by " +
+      "searching npm live, fetching each candidate and running the same security/maintenance/adoption checks " +
+      "on it. Those results come back with `matchedCategory: null` and `discoveredVia: \"npm-search\"`, and you " +
+      "MUST treat them differently: the ordering is npm's search relevance, not a judgement about which is " +
+      "best, so present them as a screened shortlist to verify rather than a ranked verdict, and confirm each " +
+      "one actually does what the user asked. An empty `recommendations` array means candidates were found but " +
+      "none cleared the bar (or nothing relevant was found) — report that honestly instead of substituting a " +
+      "package of your own; the absence is itself the finding. A discovery call is slow the first time (it " +
+      "fetches every candidate) and served from the store afterwards.",
     fields: {
       need: {
         type: "string",
@@ -100,7 +112,7 @@ const TOOLS: ToolSpec[] = [
   },
 ];
 
-export const server = createServer({ name: "dep-rec-engine", version: "0.2.0" }, TOOLS);
+export const server = createServer({ name: "dep-rec-engine", version: "0.3.0" }, TOOLS);
 
 // Only start reading stdin when actually run as the server binary. Importing
 // this module for its TOOLS (as the test suite does) must not hijack stdio.

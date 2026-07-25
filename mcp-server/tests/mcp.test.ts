@@ -222,7 +222,8 @@ describe("MCP — recommend_package", () => {
   test("an unmatched need falls back and explains itself", async () => {
     const r = await mcp.call("recommend_package", { need: "zzzz nonexistent domain qqqq" });
     assert.equal(r.json.matchedCategory, null);
-    assert.match(r.json.note, /No category matched/i);
+    assert.equal(r.json.discoveredVia, "npm-search", "an uncovered need is discovered live, not answered from the corpus");
+    assert.match(r.json.note, /No .*category matched/i);
   });
 
   test("an empty need string is handled without crashing", async () => {
