@@ -36,7 +36,7 @@ server.registerTool(
       "(downloads relative to same-category competitors), and supply-chain footprint (dependency count) — " +
       "computed from real npm registry / OSV data, never guessed from training data. Only packages that clear a " +
       "recommendation bar are considered at all — deprecated, barely-adopted (<10k weekly downloads), brand-new " +
-      "(<180 days) and unmaintained (no release in ~2 years) packages are excluded rather than merely scored " +
+      "(<30 days) and unmaintained (no release in ~1000 days) packages are excluded rather than merely scored " +
       "low, because putting them forward would undermine the point of the recommendation. Always cite the " +
       "returned `reasons` when explaining a recommendation; never invent a score or reason of your own.",
     inputSchema: {

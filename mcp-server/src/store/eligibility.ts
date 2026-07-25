@@ -11,14 +11,21 @@
 // to ship a fix when a CVE lands.
 //
 // The curated corpus was built from npm's relevance search, which happily
-// returns both. Roughly 30% of it failed the bar below on first measurement,
-// including a package that was leading its category while being 158 days old.
+// returns both: 192 of its 499 entries fail the bar below, including packages
+// with 2-6 weekly downloads and several abandoned for 4+ years.
+//
+// The age floor is set low on the reasoning that adoption is itself evidence —
+// a package pulling 13M weekly downloads is demonstrably in real use whatever
+// its age. The tradeoff that buys is explicit rather than hidden: at 30 days,
+// a package a couple of months old can be recommended, and two currently are
+// (@supabase/phoenix at 158 days, @earendil-works/pi-agent-core at 79 days).
+// Raise MIN_AGE_DAYS if that exposure matters more than the coverage.
 
 import type { PackageRow } from "./db.js";
 
 export const MIN_WEEKLY_DOWNLOADS = 10_000;
-export const MIN_AGE_DAYS = 180;
-export const MAX_STALE_DAYS = 730;
+export const MIN_AGE_DAYS = 30;
+export const MAX_STALE_DAYS = 1000;
 
 // Above this adoption level, a long gap between releases reads as "stable"
 // rather than "abandoned" — redux has ~39M weekly downloads and had not cut a

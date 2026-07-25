@@ -324,18 +324,25 @@ relative to its peers. A package must first clear an absolute bar
 |---|---|
 | Not deprecated | — |
 | Real adoption | ≥ 10,000 weekly downloads |
-| Has a track record | ≥ 180 days since first publish |
-| Still maintained | released within ~2 years (3 years above 5M weekly downloads) |
+| Has a track record | ≥ 30 days since first publish |
+| Still maintained | released within ~1000 days (~1095 above 5M weekly downloads) |
 
 The staleness rule is adoption-aware on purpose. `redux` has ~39M weekly
 downloads and had not cut a release in 810 days — that reads as *stable*, not
 abandoned, and excluding it would be a worse error than keeping it.
 
-This exists because measuring the corpus found **211 of 499** curated entries
-failing that bar: packages with 2–6 weekly downloads, several abandoned for
-4+ years, and a 158-day-old package that was *leading* the web-framework
-category. A security-focused recommender that surfaces those undermines its own
-purpose.
+This exists because measuring the corpus found that **192 of 499** curated
+entries fail the bar: packages with 2–6 weekly downloads, and several abandoned
+for 4+ years. A security-focused recommender that surfaces those undermines its
+own purpose.
+
+The age floor is deliberately low (30 days) on the reasoning that adoption is
+itself evidence — a package pulling 13M weekly downloads is demonstrably in real
+use whatever its age. The tradeoff is explicit: at this setting a package a
+couple of months old can be recommended, and two currently are
+(`@supabase/phoenix` at 158 days, `@earendil-works/pi-agent-core` at 79 days,
+both with >1M weekly downloads). Raising `MIN_AGE_DAYS` in
+`src/store/eligibility.ts` is the single knob that changes this.
 
 Two deliberate consequences:
 
@@ -371,7 +378,7 @@ because percentile ranks were assigned by sort index, two legitimate packages
 been committed into the shipped store database, `check typescript` recommending
 `7.0.1-rc` as its "battle-tested" pick, and **211 of 499 curated packages
 failing a basic recommendation bar** — including entries with 2–6 weekly
-downloads and a 158-day-old package leading its category. Full inventory and
+downloads and several packages abandoned for 4+ years. Full inventory and
 the reasoning behind each: [`tests/README.md`](tests/README.md).
 
 The gap suite is worth calling out separately: it does **not** fail because a

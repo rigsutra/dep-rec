@@ -87,12 +87,12 @@ All of these were real, in shipped or about-to-ship code, and are now fixed:
    `csvparser` (86 weekly downloads, one hyphen from `csv-parser` at 3.3M) was
    in the curated dataset *and* tripped the typosquat detector — the tool would
    both recommend it and warn about it. Measuring the whole corpus showed the
-   scale: **211 of 499 entries** failed a basic recommendation bar, including
-   packages with 2–6 weekly downloads, several abandoned for 4+ years, and a
-   158-day-old package that was *leading* the web-framework category.
+   scale: a large share of the corpus failed a basic recommendation bar
+   (**192 of 499** at the thresholds currently set), including packages with
+   2–6 weekly downloads and several abandoned for 4+ years.
    Fixed with an explicit eligibility gate (`src/store/eligibility.ts`):
-   deprecated, under 10k weekly downloads, under 180 days old, or no release in
-   ~2 years disqualifies a package from being recommended. It is enforced at
+   deprecated, under 10k weekly downloads, under 30 days old, or no release in
+   ~1000 days disqualifies a package from being recommended. It is enforced at
    serve time as well as at dataset-build time, because a package can degrade
    after collection. Staleness is adoption-aware — `redux` has ~39M weekly
    downloads and had not released in 810 days, which reads as stable rather
