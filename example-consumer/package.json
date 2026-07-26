@@ -6,6 +6,6 @@
   "description": "Minimal example project showing dep-rec installed as a real devDependency, not run from source.",
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "dep-rec": "file:../mcp-server/dep-rec-0.3.1.tgz"
+    "dep-rec": "file:../mcp-server/dep-rec-0.4.0.tgz"
   }
 }

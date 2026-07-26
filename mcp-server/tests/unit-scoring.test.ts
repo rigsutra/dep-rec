@@ -175,9 +175,27 @@ describe("scoreAbsolute — semantics that must hold", () => {
     assert.ok(stale.reasons.some((r) => /no release in over a year/i.test(r)));
   });
 
-  test("single-maintainer bus factor is surfaced", () => {
-    assert.ok(scoreAbsolute(row({ maintainers: 1 })).reasons.some((r) => /bus-factor/i.test(r)));
-    assert.ok(!scoreAbsolute(row({ maintainers: 9 })).reasons.some((r) => /bus-factor/i.test(r)));
+  test("maintainer count does not move the score", () => {
+    // It used to be a third of the maintenance sub-score, and printed
+    // "single maintainer — bus-factor risk". Measured against the corpus,
+    // 106 of 307 recommendable packages have one maintainer — zod, axios,
+    // date-fns, jose, hono among them — so the tool recommended those and
+    // warned about them simultaneously. npm's `maintainers` field counts
+    // publish rights, not people, so it never supported the claim.
+    const solo = scoreAbsolute(row({ maintainers: 1 }));
+    const crowd = scoreAbsolute(row({ maintainers: 9 }));
+    assert.equal(solo.maintenance, crowd.maintenance, "maintenance must not depend on publish-rights count");
+    assert.equal(solo.total, crowd.total);
+  });
+
+  test("no reason asserts a bus-factor risk it cannot measure", () => {
+    for (const n of [0, 1, 2, 9]) {
+      const reasons = scoreAbsolute(row({ maintainers: n })).reasons;
+      assert.ok(
+        !reasons.some((r) => /bus.?factor/i.test(r)),
+        `maintainers=${n} still claims a bus-factor risk: ${JSON.stringify(reasons)}`
+      );
+    }
   });
 });
 

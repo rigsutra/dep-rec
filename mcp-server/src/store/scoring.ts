@@ -58,6 +58,32 @@ function safeDownloads(n: number): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+// Maintenance is release recency and cadence only. Maintainer count used to
+// be a third of it, and printed "single maintainer — bus-factor risk"
+// whenever npm reported one or fewer.
+//
+// Measured against the corpus, that was wrong in both directions. Of 307
+// recommendable packages, 106 have one maintainer — including zod
+// (239M weekly downloads), axios (118M), date-fns (94M), jose (102M),
+// hono (52M) and csv-parse (17M). The tool was recommending those packages
+// and warning about them in the same breath, which is the same
+// self-contradiction as flagging a package it puts forward. Median score by
+// maintainer count is not even monotonic (1 -> 71.9, 2 -> 73.6, 3 -> 80.5,
+// 4 -> 75.2, 5+ -> 75.9): noise, not signal.
+//
+// The root problem is that npm's `maintainers` field counts publish rights,
+// not people. An organisation releasing through one CI account reports one;
+// a project with two hundred GitHub contributors can report one. So "bus
+// factor" was an inference the underlying data cannot support — the kind of
+// unverified claim this project refuses to make anywhere else.
+//
+// The raw count is still returned in `npm.maintainers` for anyone who wants
+// to weigh it. It is a fact; it just is not a verdict. Real bus-factor
+// analysis needs contributor distribution from the repository host, which
+// is a documented gap rather than something to approximate badly.
+const MAINTENANCE_RECENCY_WEIGHT = 0.65;
+const MAINTENANCE_CADENCE_WEIGHT = 0.35;
+
 function securityScore(deprecated: boolean, vulnCount: number, securityCheckFailed: boolean, reasons: string[]): number {
   let s = 100;
   if (securityCheckFailed) {
@@ -154,7 +180,6 @@ export function scoreCategoryGroup(rows: PackageRow[]): Map<string, ScoreResult>
     new Map(names.map((n) => [n, byName.get(n)!.release_cadence_days ?? 9999])),
     false
   );
-  const maintainerPct = percentileRanks(names, new Map(names.map((n) => [n, byName.get(n)!.maintainers])), true);
   const recencyPct = percentileRanks(
     names,
     new Map(names.map((n) => [n, daysSince(byName.get(n)!.modified_at)])),
@@ -168,10 +193,8 @@ export function scoreCategoryGroup(rows: PackageRow[]): Map<string, ScoreResult>
 
     const recency = recencyPct.get(r.name) ?? 50;
     const cadence = cadencePct.get(r.name) ?? 50;
-    const maint = maintainerPct.get(r.name) ?? 50;
-    const maintenance = clamp(0.5 * recency + 0.25 * cadence + 0.25 * maint);
+    const maintenance = clamp(MAINTENANCE_RECENCY_WEIGHT * recency + MAINTENANCE_CADENCE_WEIGHT * cadence);
     if (recency < 25) reasons.push("no recent release relative to category peers");
-    if (r.maintainers <= 1) reasons.push("single maintainer — bus-factor risk");
 
     const compatibility = compatibilityScore(r.esm_support, r.typescript_support, reasons);
     const community = clamp(downloadPct.get(r.name) ?? 50);
@@ -199,10 +222,8 @@ export function scoreAbsolute(r: PackageRow): ScoreResult {
   const daysSinceModified = daysSince(r.modified_at);
   const recency = clamp(100 - daysSinceModified / 5);
   const cadence = r.release_cadence_days === null ? 50 : clamp(100 - r.release_cadence_days / 10);
-  const maintainerAbs = clamp(30 + r.maintainers * 25);
-  const maintenance = clamp(0.5 * recency + 0.25 * cadence + 0.25 * maintainerAbs);
+  const maintenance = clamp(MAINTENANCE_RECENCY_WEIGHT * recency + MAINTENANCE_CADENCE_WEIGHT * cadence);
   if (daysSinceModified > 500) reasons.push("no release in over a year");
-  if (r.maintainers <= 1) reasons.push("single maintainer — bus-factor risk");
 
   const compatibility = compatibilityScore(r.esm_support, r.typescript_support, reasons);
   const community = clamp(Math.log10(safeDownloads(r.weekly_downloads) + 1) * 14);

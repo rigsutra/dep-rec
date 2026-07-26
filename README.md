@@ -51,12 +51,12 @@ npx dep-rec check csvparser
 ```
 
 ```
-🚨 csvparser  score 46.6  [cache]
+🚨 csvparser  score 45.2  [cache]
   TYPOSQUAT WARNING: Name is one character away from "csv-parser" (3,288,172 weekly downloads vs. this package's 86) — classic typosquat pattern. Verify this is really the package you meant before installing.
   license: unknown  maintainers: 1  deps: 0  weekly downloads: 86
   - no known vulnerabilities affecting the current version
   - no recent release relative to category peers
-  - single maintainer — bus-factor risk
+  - no ESM or bundled TS types detected
   NOT RECOMMENDATION-GRADE — this tool would not put this package forward:
     - only 86 weekly downloads (recommendation floor is 10,000)
     - no release in 1503 days (limit is 1000 at this adoption level)
@@ -130,11 +130,10 @@ Real output from `check_package` on `csvparser`, unedited:
   "name": "csvparser",
   "found": true,
   "servedFrom": "cache",
-  "score": 46.6,
+  "score": 45.2,
   "reasons": [
     "no known vulnerabilities affecting the current version",
     "no recent release relative to category peers",
-    "single maintainer — bus-factor risk",
     "no ESM or bundled TS types detected",
     "zero direct dependencies"
   ],
@@ -202,7 +201,8 @@ Five weighted signals, all from live data:
 | Signal | Weight | What it measures |
 |---|---|---|
 | Security | 25% | OSV vulnerabilities scoped to the current version |
-| Maintenance | 25% | Release recency, cadence, maintainer count |
+| Maintenance | 25% | Release recency and cadence |
+| | | *(maintainer count is reported but deliberately not scored — see below)* |
 | Compatibility | 20% | ESM and bundled TypeScript types |
 | Community | 20% | Downloads relative to real category competitors |
 | Supply chain | 10% | Dependency count, and install scripts weighted heavily |
@@ -212,6 +212,21 @@ popular packages, restricted to typo-shaped edits so `next` and `nuxt` aren't
 accused of each other), and **version guidance** — prefer the newest release
 past a 30-day observation window, unless a fresher one demonstrably fixes a
 vulnerability, verified by version-scoped OSV lookups on both.
+
+**Maintainer count is reported, not scored.** It used to be a third of the
+maintenance sub-score and printed *"single maintainer — bus-factor risk"*.
+Measured across the corpus, that flagged 106 of 307 recommendable packages —
+including `zod` (239M weekly downloads), `axios` (118M), `date-fns` (94M),
+`jose` (102M) and `hono` (52M). The tool was recommending those and warning
+about them in the same breath. Median score by maintainer count wasn't even
+monotonic (1 → 71.9, 2 → 73.6, 3 → 80.5, 4 → 75.2, 5+ → 75.9): noise, not
+signal. The underlying reason is that npm's `maintainers` field counts
+publish rights, not people — an org releasing through one CI account reports
+one, and so can a project with hundreds of contributors. The count is still
+in `npm.maintainers` for anyone who wants to weigh it; it just isn't treated
+as a verdict. Real bus-factor analysis needs contributor distribution from
+the repository host, which is a documented gap rather than something to
+approximate badly.
 
 **A package can be answered for and still not be recommendable.** Deprecated,
 under 10k weekly downloads, under 30 days old, or no release in ~1000 days
