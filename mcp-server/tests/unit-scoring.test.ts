@@ -446,4 +446,90 @@ describe("version safety — branches decidable without network", () => {
     );
     assert.ok(typeof g.recommendedVersion === "string" && g.recommendedVersion.length > 0);
   });
+
+  // Regression, measured against the real registry: the resolver used to walk
+  // versionHistory (publish-time order) backwards and take the first eligible
+  // entry, which is "last published", not "highest version". For undici that
+  // chose 6.27.0 — a backport published after the 8.x line shipped — when
+  // 8.5.0 was both semver-newer and past the window. 3 of the 141 corpus
+  // packages inside the cooldown window hit this.
+  test("a backport published after a newer line does not become the pick", async () => {
+    const g = await resolveRecommendedVersion(
+      "undici-shaped",
+      "8.9.0",
+      [
+        { version: "6.20.0", releasedAt: iso(300) },
+        { version: "8.5.0", releasedAt: iso(120) },
+        { version: "6.27.0", releasedAt: iso(45) }, // security backport to the old line
+        { version: "8.9.0", releasedAt: iso(3) },
+      ],
+      { ok: true, vulnerabilityIds: [] }
+    );
+    assert.equal(g.recommendedVersion, "8.5.0", `picked ${g.recommendedVersion}; publish order would give 6.27.0`);
+  });
+
+  test("version ordering is numeric, not lexicographic", async () => {
+    // "9.0.0" > "10.0.0" as strings. Sorting versions as text is the classic
+    // way to hand back a two-major downgrade while looking correct.
+    const g = await resolveRecommendedVersion(
+      "probe",
+      "11.0.0",
+      [
+        { version: "9.0.0", releasedAt: iso(300) },
+        { version: "10.0.0", releasedAt: iso(200) },
+        { version: "11.0.0", releasedAt: iso(2) },
+      ],
+      { ok: true, vulnerabilityIds: [] }
+    );
+    assert.equal(g.recommendedVersion, "10.0.0");
+  });
+
+  test("a version above the current dist-tag is never suggested", async () => {
+    // A maintainer can move `latest` back to a supported line. That pointer is
+    // a deliberate choice about what to install; overriding it is not ours.
+    const g = await resolveRecommendedVersion(
+      "rolled-back",
+      "2.4.0",
+      [
+        { version: "2.3.0", releasedAt: iso(200) },
+        { version: "3.0.0", releasedAt: iso(90) }, // published, then un-tagged
+        { version: "2.4.0", releasedAt: iso(4) },
+      ],
+      { ok: true, vulnerabilityIds: [] }
+    );
+    assert.equal(g.recommendedVersion, "2.3.0", `suggested ${g.recommendedVersion}, which is above latest`);
+  });
+
+  test("a pick that is a major behind latest says so explicitly", async () => {
+    // 11 of 141 corpus packages inside the window resolve to an older major.
+    // A bare version number gives no hint that the API differs, and a caller
+    // reading v5 docs while installing v4 is worse off than one who took the
+    // fresh release.
+    const g = await resolveRecommendedVersion(
+      "major-jump",
+      "5.0.0",
+      [
+        { version: "4.1.1", releasedAt: iso(100) },
+        { version: "5.0.0", releasedAt: iso(5) },
+      ],
+      { ok: true, vulnerabilityIds: [] }
+    );
+    assert.equal(g.recommendedVersion, "4.1.1");
+    assert.match(g.reason, /major version behind/i);
+    assert.match(g.reason, /different API/i);
+  });
+
+  test("a same-major pick is not labelled a major downgrade", async () => {
+    const g = await resolveRecommendedVersion(
+      "minor-jump",
+      "5.2.0",
+      [
+        { version: "5.1.0", releasedAt: iso(100) },
+        { version: "5.2.0", releasedAt: iso(5) },
+      ],
+      { ok: true, vulnerabilityIds: [] }
+    );
+    assert.equal(g.recommendedVersion, "5.1.0");
+    assert.ok(!/major version behind/i.test(g.reason), "false major-downgrade warning");
+  });
 });

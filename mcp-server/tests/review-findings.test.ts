@@ -366,6 +366,56 @@ describe("#9 a need outside the ten categories must return nothing", () => {
     }
   });
 
+  // The cooldown logic existed, was tested, was stored — and stopped there.
+  // recommend() returned a package name with no version, so the only thing a
+  // caller could do with the answer was `npm install <name>`, resolving to
+  // whatever shipped that morning. Measured before the fix: 0 of 499 seeded
+  // rows carried version guidance, and the recommendation shape had nowhere
+  // to put it. A safety feature that never reaches the install decision is
+  // not a safety feature.
+  test("every recommendation names a version to install", async () => {
+    for (const need of ["jwt library", "csv parser", "orm"]) {
+      const r = await recommend({ need, limit: 5 });
+      assert.ok(r.recommendations.length > 0, `${need} returned nothing`);
+      for (const rec of r.recommendations) {
+        assert.ok(
+          typeof rec.recommendedVersion === "string" && rec.recommendedVersion.length > 0,
+          `${rec.package} has no install version, so a caller can only take latest`
+        );
+        assert.match(rec.recommendedVersion, /^\d/, `${rec.package}: implausible version ${rec.recommendedVersion}`);
+      }
+    }
+  });
+
+  test("a version note appears exactly when the pick differs from latest", async () => {
+    const cmp = (a: string, b: string): number => {
+      const pa = a.split(".").map((n) => Number.parseInt(n, 10) || 0);
+      const pb = b.split(".").map((n) => Number.parseInt(n, 10) || 0);
+      for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) < (pb[i] ?? 0) ? -1 : 1;
+      return 0;
+    };
+
+    for (const need of ["jwt library", "csv parser", "orm", "testing", "logger"]) {
+      for (const rec of (await recommend({ need, limit: 5 })).recommendations) {
+        const differs = rec.recommendedVersion !== rec.latestVersion;
+        if (differs) {
+          assert.ok(rec.versionNote, `${rec.package}: pinned ${rec.recommendedVersion} over ${rec.latestVersion} with no explanation`);
+          assert.ok(rec.versionNote!.length > 20, `${rec.package}: version note too thin to be a justification`);
+        } else {
+          assert.equal(rec.versionNote, undefined, `${rec.package}: note attached to a no-op version choice`);
+        }
+        // Holding a package back is the whole point; pushing it forward past
+        // what the maintainer tagged as latest is never this tool's call.
+        if (rec.recommendedVersion && rec.latestVersion) {
+          assert.ok(
+            cmp(rec.recommendedVersion, rec.latestVersion) <= 0,
+            `${rec.package}: suggested ${rec.recommendedVersion}, which is newer than latest ${rec.latestVersion}`
+          );
+        }
+      }
+    }
+  });
+
   test("the tool description warns the model about limited coverage", async () => {
     const mcp = await openMcp({ dbPath: storePath });
     try {

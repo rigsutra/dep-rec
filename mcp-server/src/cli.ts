@@ -130,6 +130,12 @@ async function runRecommend(rest: string[]): Promise<void> {
     lines.push("");
     result.recommendations.forEach((r, i) => {
       lines.push(`${i + 1}. ${r.package}  score ${r.score}  (${r.license ?? "unknown license"}, ${r.weeklyDownloads.toLocaleString("en-US")}/week)`);
+      // The install line goes directly under the name rather than after the
+      // reasons: it is the one part of this block that gets copied.
+      if (r.recommendedVersion) {
+        lines.push(`   install: ${r.package}@${r.recommendedVersion}${r.versionNote ? `  (latest is ${r.latestVersion})` : ""}`);
+      }
+      if (r.versionNote) lines.push(`     ${r.versionNote}`);
       for (const reason of r.reasons) lines.push(`   - ${reason}`);
     });
     return lines.join("\n");

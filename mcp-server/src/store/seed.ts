@@ -5,8 +5,11 @@
 // this script.
 
 import { readFile } from "node:fs/promises";
-import { upsertRaw, listAll } from "./db.js";
+import { upsertRaw, listAll, upsertVersionGuidance, upsertLatestVersion } from "./db.js";
 import { rescoreCategory } from "./lookup.js";
+import { fetchPackageDoc } from "../sources/npm.js";
+import { queryVulnerabilities } from "../sources/osv.js";
+import { resolveRecommendedVersion, COOLDOWN_DAYS } from "./version-safety.js";
 
 interface CollectorRecord {
   name: string;
@@ -23,6 +26,62 @@ interface CollectorRecord {
   downloads: { weekly: number };
   compatibility: { esmSupport: boolean; typescriptSupport: boolean; releaseCadenceDays: number | null };
   security: { vulnerabilityIds: string[] };
+}
+
+/**
+ * Resolves the cooldown-safe install version for every seeded package.
+ *
+ * This pass exists because the feature was, in practice, not shipping. The
+ * only caller of resolveRecommendedVersion was the live-fetch path, so a
+ * curated package answered from the store with recommended_version NULL —
+ * measured at 0 of 499 rows. recommend() reads the curated categories
+ * straight from the store with no freshness check, so the cooldown never
+ * reached the surface where the install decision is actually made. It
+ * surfaced only if someone happened to check_package a name by hand.
+ *
+ * The publish history it needs isn't in the collector export, hence a
+ * registry document per package. Vulnerabilities are re-queried rather than
+ * reused from the snapshot: the snapshot's list belongs to whatever version
+ * was latest when it was collected, and feeding a stale list in as "the
+ * latest version's vulnerabilities" is exactly the unverified inference the
+ * resolver documents itself as refusing to make.
+ */
+async function backfillVersionGuidance(records: CollectorRecord[]): Promise<void> {
+  const queue = [...records];
+  let resolved = 0;
+  let failed = 0;
+  let drifted = 0;
+  const heldBack: Array<{ name: string; latest: string; pick: string }> = [];
+
+  const worker = async (): Promise<void> => {
+    for (let p = queue.shift(); p !== undefined; p = queue.shift()) {
+      const doc = await fetchPackageDoc(p.name);
+      if (!doc.found || !doc.latestVersion) {
+        failed++;
+        continue;
+      }
+      if (doc.latestVersion !== p.npm.latestVersion) {
+        drifted++;
+        upsertLatestVersion(p.name, doc.latestVersion);
+      }
+      const vulnCheck = await queryVulnerabilities(p.name, doc.latestVersion);
+      const guidance = await resolveRecommendedVersion(p.name, doc.latestVersion, doc.versionHistory, vulnCheck);
+      upsertVersionGuidance(p.name, guidance.recommendedVersion, guidance.reason);
+      resolved++;
+      if (guidance.recommendedVersion !== doc.latestVersion) {
+        heldBack.push({ name: p.name, latest: doc.latestVersion, pick: guidance.recommendedVersion });
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: 6 }, worker));
+
+  console.log(`\nResolved install versions for ${resolved}/${records.length} packages.`);
+  if (failed > 0) console.log(`  ${failed} could not be resolved (registry miss) and keep a null recommended_version.`);
+  if (drifted > 0) console.log(`  ${drifted} had a latest_version newer than the collector snapshot; corrected in place.`);
+  console.log(`  ${heldBack.length} resolve to something older than latest (inside the ${COOLDOWN_DAYS}-day window):`);
+  for (const h of heldBack.slice(0, 12)) console.log(`    - ${h.name}: latest ${h.latest} -> recommending ${h.pick}`);
+  if (heldBack.length > 12) console.log(`    ... and ${heldBack.length - 12} more`);
 }
 
 async function main() {
@@ -60,6 +119,8 @@ async function main() {
     });
   }
   console.log(`Seeded ${raw.length} packages into the store.`);
+
+  await backfillVersionGuidance(raw);
 
   const categories = new Set(raw.flatMap((p) => p.categories));
   for (const cat of categories) rescoreCategory(cat);

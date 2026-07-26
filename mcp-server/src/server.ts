@@ -46,7 +46,14 @@ const TOOLS: ToolSpec[] = [
       "one actually does what the user asked. An empty `recommendations` array means candidates were found but " +
       "none cleared the bar (or nothing relevant was found) — report that honestly instead of substituting a " +
       "package of your own; the absence is itself the finding. A discovery call is slow the first time (it " +
-      "fetches every candidate) and served from the store afterwards.",
+      "fetches every candidate) and served from the store afterwards. " +
+      "Every recommendation carries `recommendedVersion` — install THAT, not the bare package name and not " +
+      "`latestVersion`. It is the newest stable release that has been public at least 30 days, so a release " +
+      "published this week (which nobody has had time to find anything wrong with, and which is when a " +
+      "compromised publish is most likely to still be live) is not what gets pinned. When it differs from " +
+      "`latestVersion` a `versionNote` explains why; relay that note rather than silently upgrading the user to " +
+      "latest. If the note says the pick is a major version behind, say so — that is a different API, and the " +
+      "user may prefer latest once they know.",
     fields: {
       need: {
         type: "string",

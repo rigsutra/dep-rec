@@ -335,6 +335,19 @@ export function upsertVersionGuidance(name: string, recommendedVersion: string, 
     .run(recommendedVersion, guidance, name);
 }
 
+/**
+ * Corrects a stored `latest_version` in isolation.
+ *
+ * Only the seed's version-guidance pass needs this: the collector snapshot it
+ * imports from can be weeks behind the registry, and guidance resolved against
+ * the registry's current latest would otherwise sit in a row still claiming
+ * the older one — a row contradicting itself about which version is newest.
+ * The normal live path has no use for it, since it rewrites the whole row.
+ */
+export function upsertLatestVersion(name: string, latestVersion: string): void {
+  getDb().prepare(`UPDATE packages SET latest_version=? WHERE name=?`).run(latestVersion, name);
+}
+
 export interface ScoreUpsert {
   total: number;
   security: number;

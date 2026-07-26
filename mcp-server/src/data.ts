@@ -148,6 +148,27 @@ export interface Recommendation {
   license: string | null;
   weeklyDownloads: number;
   reasons: string[];
+  /**
+   * The version to actually install: the newest stable release that has been
+   * public long enough to have been looked at (see version-safety.ts), which
+   * is usually but not always `latestVersion`.
+   *
+   * This exists because the recommendation list used to name a package and
+   * nothing else, so the only thing a caller could do with it was
+   * `npm install <name>` — resolving to whatever shipped that morning. All
+   * the cooldown work was computed, stored, and then never reached the one
+   * surface where the install decision is actually made.
+   *
+   * Null only when the version could not be resolved at all.
+   */
+  recommendedVersion: string | null;
+  latestVersion: string | null;
+  /**
+   * Why the recommended version differs from the latest. Present ONLY when
+   * they differ — attaching a paragraph of "no cooldown concern" to all five
+   * results would bury the one that matters.
+   */
+  versionNote?: string;
 }
 
 export interface RecommendResult {
@@ -326,6 +347,12 @@ const EDGE_CAVEAT =
   "Edge Runtime fit has NOT been sandbox-tested for this dataset (that's Proof 0's @edge-runtime/vm check, run separately and not yet merged in). ESM support is used as a weak proxy here, not a real guarantee — verify before deploying to an edge function.";
 
 function toRecommendation(p: PackageRow): Recommendation {
+  // Falling back to latest_version when no guidance is stored is deliberate:
+  // an install target the caller can use beats a null, and "latest" is what
+  // they would have got anyway without this field. The fallback is silent
+  // precisely because it is not a downgrade in behaviour.
+  const recommendedVersion = p.recommended_version ?? p.latest_version;
+  const differs = Boolean(recommendedVersion && p.latest_version && recommendedVersion !== p.latest_version);
   return {
     package: p.name,
     score: p.score_total ?? 0,
@@ -333,6 +360,9 @@ function toRecommendation(p: PackageRow): Recommendation {
     license: p.license,
     weeklyDownloads: p.weekly_downloads,
     reasons: p.score_reasons,
+    recommendedVersion,
+    latestVersion: p.latest_version,
+    versionNote: differs && p.version_guidance ? p.version_guidance : undefined,
   };
 }
 

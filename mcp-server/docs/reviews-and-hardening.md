@@ -263,6 +263,60 @@ announces itself before blocking, and the test asserts it genuinely
 waited — a version that can't pass by accident.
 
 
+## Version guidance — a feature that was built and never delivered
+
+The 30-day cooldown resolver existed, was unit-tested, and wrote its result to
+the store. Measuring what actually reached a caller found three separate
+problems, one of which meant the feature had never worked at all on its main
+surface.
+
+- **0 of 499 shipped rows carried version guidance.** The only caller of
+  `resolveRecommendedVersion` was the live-fetch path, so a curated package
+  answered from the store with `recommended_version` NULL. `recommend()` reads
+  the curated categories straight from the store with no freshness check, so
+  the cooldown reached nobody unless they happened to `check_package` a name by
+  hand. Worse, `recommend()` returned no version field at all — the only thing
+  a caller could do with the answer was `npm install <name>`, resolving to
+  whatever shipped that morning. Fixed by resolving guidance during the seed
+  and putting `recommendedVersion` / `latestVersion` / `versionNote` on every
+  recommendation.
+- **Selection was by publish date, not by version.** The resolver walked
+  `versionHistory` backwards and took the first stable entry past the window —
+  "last published", which is not "highest". Any project that backports to an
+  older line after shipping a newer one breaks it. Measured across the corpus:
+  of the 141 packages whose `latest` was inside the window, 3 picked wrong, and
+  `undici` picked `6.27.0` (a backport released after 8.x shipped) when `8.5.0`
+  was both newer and past the window. A two-major downgrade offered as the
+  *safer* option is worse than no answer.
+- **Major-version downgrades were silent.** 11 of those 141 resolved to an
+  older major — `@turnkey/http` 5.0.0 → 4.1.1, `better-sqlite3` 13.0.1 →
+  12.11.1, `@expressots/core` 4.0.0 → 3.0.0. A bare version number gives no
+  hint the API differs, and a caller writing v5 code against v4 is worse off
+  than one who took the fresh release. Those now carry an explicit caution that
+  installing `latest` may be what they actually want.
+
+Also added: nothing above the current `dist-tags.latest` is eligible. A
+maintainer who rolls `latest` back to a supported line has made a deliberate
+decision about what to install, and overriding it is not this tool's call.
+
+### Open: `modified_at` is not "last release"
+
+Surfaced by the above, not yet fixed. Both `eligibility.ts` and the maintenance
+sub-score treat the registry's `time.modified` as the last-release date. It
+isn't — it moves on any metadata change. `csvparser` last published `0.1.4` on
+2014-01-28 but reports `modified: 2022-06-14`, so the gate says *"no release in
+1504 days"* about a package that has not shipped in **4562**, understating
+staleness by eight years.
+
+The verdict happens to survive (it is excluded anyway, on adoption), but the
+stated reason is wrong, and the maintenance recency score is measuring the
+wrong quantity for every package whose registry document was touched after its
+last publish. The real last-publish date is already fetched — it is in
+`versionHistory`, which is how the discrepancy became visible. Fixing it means
+a new column, a migration, and a full corpus rescore, so it is recorded here
+rather than bundled into an unrelated change.
+
+
 ## Stress testing (`npm run stress`)
 
 Separate from the test suite, and with a different job. A test suite
@@ -426,7 +480,7 @@ npm run test:gaps    # what the spec claimed but was never built
 npm run test:review  # regressions for every externally-reported finding
 ```
 
-428 adversarial scenarios across >1000 packages, using `node:test` only (no
+437 adversarial scenarios across >1000 packages, using `node:test` only (no
 framework dependency). Every suite runs against a temp copy of the store, so
 tests can never corrupt the shipped `data/store.db`.
 

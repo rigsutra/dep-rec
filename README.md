@@ -31,6 +31,8 @@ Runs as an **MCP server** an assistant calls mid-conversation, and as a plain
   event-stream attack vector
 - **Refuses to recommend** deprecated, barely-adopted, brand-new or
   unmaintained packages, and says which bar was missed
+- **Pins a version, not just a name** — the newest stable release that has
+  been public 30+ days, so nothing installs a package published this morning
 - **Says "unknown" instead of "clean"** when a lookup fails
 - **Covers all of npm** — ten curated categories, everything else discovered
   by live search
@@ -51,15 +53,18 @@ npx dep-rec check csvparser
 ```
 
 ```
-🚨 csvparser  score 45.2  [cache]
+🚨 csvparser  score 45.1  [cache]
   TYPOSQUAT WARNING: Name is one character away from "csv-parser" (3,288,172 weekly downloads vs. this package's 86) — classic typosquat pattern. Verify this is really the package you meant before installing.
   license: unknown  maintainers: 1  deps: 0  weekly downloads: 86
   - no known vulnerabilities affecting the current version
   - no recent release relative to category peers
   - no ESM or bundled TS types detected
+  - zero direct dependencies
+  recommended version: 0.1.4 (= latest)
+    0.1.4 was released 4562 days ago, past the 30-day observation window — no cooldown concern.
   NOT RECOMMENDATION-GRADE — this tool would not put this package forward:
     - only 86 weekly downloads (recommendation floor is 10,000)
-    - no release in 1503 days (limit is 1000 at this adoption level)
+    - no release in 1504 days (limit is 1000 at this adoption level)
 ```
 
 ```bash
@@ -98,10 +103,10 @@ Then the conversation goes differently:
 
 > **You:** I need to parse CSV in this project.
 >
-> **Assistant** *(calls `recommend_package`)*: `csv-parse` — score 91.4, no
-> known vulnerabilities affecting the current version, ships ESM and
-> TypeScript types. 40 alternatives were excluded for failing the
-> recommendation bar.
+> **Assistant** *(calls `recommend_package`)*: `csv-parse@7.0.0` — score 93.2,
+> no known vulnerabilities affecting the current version, ships ESM and
+> TypeScript types. Pinned to 7.0.0 rather than 7.0.1, which is 24 days old.
+> 40 alternatives were excluded for failing the recommendation bar.
 >
 > **You:** What about `csvparser`?
 >
@@ -129,8 +134,9 @@ Real output from `check_package` on `csvparser`, unedited:
 {
   "name": "csvparser",
   "found": true,
+  "inCuratedDataset": true,
   "servedFrom": "cache",
-  "score": 45.2,
+  "score": 45.1,
   "reasons": [
     "no known vulnerabilities affecting the current version",
     "no recent release relative to category peers",
@@ -145,6 +151,10 @@ Real output from `check_package` on `csvparser`, unedited:
     "deprecated": false
   },
   "weeklyDownloads": 86,
+  "versionGuidance": {
+    "recommendedVersion": "0.1.4",
+    "reason": "0.1.4 was released 4562 days ago, past the 30-day observation window — no cooldown concern."
+  },
   "typosquatWarning": {
     "targetPackage": "csv-parser",
     "targetWeeklyDownloads": 3288172,
@@ -153,11 +163,20 @@ Real output from `check_package` on `csvparser`, unedited:
   "recommendable": false,
   "notRecommendableBecause": [
     "only 86 weekly downloads (recommendation floor is 10,000)",
-    "no release in 1503 days (limit is 1000 at this adoption level)"
+    "no release in 1504 days (limit is 1000 at this adoption level)"
   ],
-  "note": "In a known category — this score is ranked against real category competitors."
+  "note": "In a known category — this score is ranked against real category competitors (see recommend_package for the full comparison)."
 }
 ```
+
+> Those two day counts disagree on purpose, and the disagreement is a known
+> defect rather than a subtlety: `versionGuidance` reads the actual publish
+> date of `0.1.4` (2014-01-28), while the eligibility gate reads the registry's
+> `modified` timestamp (2022-06-14), which moves on any metadata change and is
+> a poor proxy for "last release". The gate understates this package's
+> staleness by eight years. It still excludes it, so the verdict is right for
+> the wrong reason — tracked in
+> [reviews and hardening](mcp-server/docs/reviews-and-hardening.md).
 
 Note what's absent: no bare boolean verdict to misread. `score` never appears
 without `reasons`; `recommendable: false` never without
@@ -209,9 +228,41 @@ Five weighted signals, all from live data:
 
 Plus **typosquat detection** on names that resolve (edit-distance-1 against
 popular packages, restricted to typo-shaped edits so `next` and `nuxt` aren't
-accused of each other), and **version guidance** — prefer the newest release
-past a 30-day observation window, unless a fresher one demonstrably fixes a
-vulnerability, verified by version-scoped OSV lookups on both.
+accused of each other).
+
+## Which version you get
+
+Both tools return a `recommendedVersion`, and it is not always `latest`.
+
+The default is the newest stable release that has been public for **at least
+30 days**. A version published this week has had nobody looking at it, and
+that window is exactly when a compromised publish is most likely to still be
+live — the `event-stream` and `ua-parser-js` payloads were both pulled within
+days. Waiting out the window costs a few patch releases and removes the part
+of the risk curve you can't inspect.
+
+Three things keep that from becoming its own kind of bad advice:
+
+- **A fresher release wins if it demonstrably fixes something.** Not inferred
+  from recency — both versions get a version-scoped OSV lookup, and `latest`
+  is only preferred when the older one is confirmed affected and it isn't.
+- **Prereleases are never the "safe" pick.** Projects with an active rc train
+  publish constantly, and the newest thing past a 30-day window is often a
+  release candidate. Offering an rc as the battle-tested option inverts the
+  whole idea.
+- **A major-version gap is stated, not buried.** On the 499-package corpus,
+  141 packages had a `latest` inside the window and 11 of those resolved to an
+  older *major* — a different API, not just an older build. Those come back
+  with an explicit caution that installing `latest` may be what you actually
+  want.
+
+Selection is by semver, not publish date. Walking the publish history
+backwards picks up backports: for `undici` that chose `6.27.0`, a patch to the
+old line released after 8.x shipped, when `8.5.0` was both newer and past the
+window. Three of the 141 hit that.
+
+Of the 499 seeded packages, 132 currently resolve to something older than
+`latest`.
 
 **Maintainer count is reported, not scored.** It used to be a third of the
 maintenance sub-score and printed *"single maintainer — bus-factor risk"*.
@@ -312,11 +363,11 @@ problem it's trying to solve:
   packing
 - [Reviews and hardening](mcp-server/docs/reviews-and-hardening.md) — every external
   review finding, the stress harness, and the bugs both found
-- [Tests](mcp-server/tests/README.md) — 428 adversarial scenarios across seven suites
+- [Tests](mcp-server/tests/README.md) — 437 adversarial scenarios across seven suites
 
 ## Repository layout
 
-`drec` is the published package; the rest of this repo is what produced it.
+`dep-rec` is the published package; the rest of this repo is what produced it.
 
 | Directory | What it is |
 |---|---|

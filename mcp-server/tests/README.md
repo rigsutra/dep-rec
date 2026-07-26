@@ -2,7 +2,7 @@
 
 Adversarial by design. The goal is not to demonstrate that the code works —
 it is to find the places where it lies, crashes, or quietly does the wrong
-thing. Seven suites, 428 scenarios, >1000 packages exercised.
+thing. Seven suites, 437 scenarios, >1000 packages exercised.
 
 ```bash
 npm test             # everything
