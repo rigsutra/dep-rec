@@ -281,15 +281,27 @@ function mentionsNeed(name: string, description: string | null, tokens: string[]
  * than percentile-against-peers — a percentile is only meaningful against a
  * competitor set someone actually curated.
  */
-async function discoverForNeed(input: RecommendInput, limit: number, categoryKeys: string[]): Promise<RecommendResult> {
+async function discoverForNeed(input: RecommendInput, limit: number): Promise<RecommendResult> {
   const hits = await searchPackages(input.need, DISCOVERY_CANDIDATES * 2);
 
+  // Says what these results ARE and how much to trust them — deliberately
+  // without naming the internal categories.
+  //
+  // It used to open by listing all ten of them, which was the wrong thing to
+  // put in front of a model. The list reads as a statement of coverage, and
+  // the tool's actual coverage is all of npm; a model that has just been told
+  // "auth-jwt, csv-parsing, date-time, ..." is being nudged toward treating
+  // anything else as unsupported, which is precisely backwards for the branch
+  // that exists to answer everything else. The taxonomy is an implementation
+  // detail of how ranking works, it is available from list_categories for
+  // anyone who wants it, and `matchedCategory: null` already carries the same
+  // fact in a form a caller can branch on without reading prose.
   const caveats = [
-    `"${input.need}" is not one of the ${categoryKeys.length} curated categories (${categoryKeys.join(", ")}). ` +
-      `These candidates were discovered by searching npm live and then scored with the same security, ` +
-      `maintenance and supply-chain checks — but the ranking is npm's relevance plus an absolute score, ` +
-      `NOT a percentile against a curated competitor set. Treat it as a screened shortlist to verify, not a ` +
-      `settled comparison, and check that each one actually does what you need.`,
+    `These candidates were found by searching npm live for "${input.need}", then screened with the same ` +
+      `security, maintenance and supply-chain checks as any other answer. The ordering is npm's search ` +
+      `relevance, NOT a judgement about which is best — there is no curated competitor set for this need to ` +
+      `rank against, so the scores are absolute rather than percentiles. Treat it as a screened shortlist to ` +
+      `verify, not a settled comparison, and confirm each one actually does what you need.`,
   ];
 
   if (hits.length === 0) {
@@ -299,7 +311,7 @@ async function discoverForNeed(input: RecommendInput, limit: number, categoryKey
       recommendations: [],
       caveats,
       note:
-        `No category matched "${input.need}", and searching npm for it returned nothing usable. ` +
+        `Searching npm for "${input.need}" returned nothing usable. ` +
         `If you already have a candidate name, check_package scores any package on npm.`,
     };
   }
@@ -351,10 +363,9 @@ async function discoverForNeed(input: RecommendInput, limit: number, categoryKey
     excludedAsUnrecommendable,
     note:
       ranked.length > 0
-        ? `No curated category matched "${input.need}", so ${rows.length} candidates were discovered via npm ` +
-          `search, fetched, scored and filtered down to ${ranked.length}. They are now tracked in the store, so ` +
-          `the same question is served from disk next time.`
-        : `No curated category matched "${input.need}". ${rows.length} candidates were found and scored, but ` +
+        ? `${rows.length} candidates were discovered via npm search, fetched, scored and filtered down to ` +
+          `${ranked.length}. They are now tracked in the store, so the same question is served from disk next time.`
+        : `${rows.length} candidates were found and scored, but ` +
           `none cleared the recommendation bar (adoption, maintenance, deprecation) — which is itself a signal ` +
           `worth reporting rather than lowering the bar to fill the list.`,
   };
@@ -404,7 +415,7 @@ export async function recommend(input: RecommendInput): Promise<RecommendResult>
   // and a confident wrong answer is a bug. Five wrong packages with scores
   // attached is a confident wrong answer, so the domain gap is now reported
   // as a gap.
-  if (!matched) return discoverForNeed(input, limit, categoryKeys);
+  if (!matched) return discoverForNeed(input, limit);
 
   let candidates = listByCategory(matched);
 

@@ -229,8 +229,14 @@ describe("CLI — recommend", () => {
     const r = await runCli(["recommend", "quantum flux capacitor harness", "--json"], { dbPath, timeoutMs: 120_000 });
     assert.equal(r.json.matchedCategory, null);
     assert.equal(r.json.discoveredVia, "npm-search");
-    assert.match(r.json.note, /No .*category matched/i);
-    assert.ok(r.json.caveats.some((x) => x.includes("auth-jwt")), "the caveat should list the categories that do exist");
+    // Provenance must be disclosed; the internal taxonomy must not be. The
+    // caveat used to be required to name the categories — that is the thing
+    // being fixed, so this now asserts the opposite.
+    assert.match(r.json.note, /discovered via npm search/i);
+    assert.ok(
+      !r.json.caveats.some((x) => x.includes("auth-jwt")),
+      "the caveat must not recite internal category keys at the caller"
+    );
   });
 
   test("missing need argument exits non-zero", async () => {

@@ -223,7 +223,7 @@ describe("MCP — recommend_package", () => {
     const r = await mcp.call("recommend_package", { need: "zzzz nonexistent domain qqqq" });
     assert.equal(r.json.matchedCategory, null);
     assert.equal(r.json.discoveredVia, "npm-search", "an uncovered need is discovered live, not answered from the corpus");
-    assert.match(r.json.note, /No .*category matched/i);
+    assert.match(r.json.note, /npm search/i);
   });
 
   test("an empty need string is handled without crashing", async () => {

@@ -337,8 +337,8 @@ describe("Scoring model honesty", () => {
       // discovery rather than answered from an unrelated category. Whatever
       // comes back must be labelled as discovered, not passed off as curated.
       assert.equal(r.json.discoveredVia, "npm-search", "an unresolved need must fall through to discovery");
-      assert.ok(r.json.caveats.length > 0, "discovered results must carry the not-a-curated-category caveat");
-      assert.match(r.json.note, /No .*category matched/i, "a miss must be disclosed, not hidden");
+      assert.ok(r.json.caveats.length > 0, "discovered results must carry a provenance caveat");
+      assert.match(r.json.note, /npm search/i, "a miss must be disclosed, not hidden");
     } else {
       assert.ok(r.json.recommendations.length > 0, "a matched category must still produce results");
     }
@@ -348,7 +348,7 @@ describe("Scoring model honesty", () => {
     const r = await mcp.call("recommend_package", { need: "flux capacitor calibration" });
     if (r.json.matchedCategory === null) {
       assert.ok(r.json.note, "an unmatched need must be disclosed");
-      assert.match(r.json.note, /No .*category matched/i);
+      assert.match(r.json.note, /npm search/i);
       // The corpus-wide fallback is gone: nothing may be returned that was
       // not selected for this need specifically.
       assert.equal(r.json.discoveredVia, "npm-search");

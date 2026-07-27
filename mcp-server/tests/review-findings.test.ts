@@ -26,7 +26,7 @@ import { REPO_ROOT, runCli, openMcp, cleanEnv, row } from "./helpers.js";
 import { PACKAGES_COLUMNS } from "../src/store/schema.js";
 import { getPackage } from "../src/store/db.js";
 import { checkTyposquat } from "../src/store/typosquat.js";
-import { normalizeLimit, MAX_LIMIT, checkPackage, recommend } from "../src/data.js";
+import { normalizeLimit, MAX_LIMIT, checkPackage, recommend, listCategories } from "../src/data.js";
 import { validatePackageName, fetchPackageDoc, fetchWeeklyDownloads } from "../src/sources/npm.js";
 import { isRecommendable, checkRecommendable } from "../src/store/eligibility.js";
 
@@ -336,14 +336,39 @@ describe("#9 a need outside the ten categories must return nothing", () => {
       const r = await recommend({ need });
       assert.equal(r.matchedCategory, null, `premise: "${need}" is outside the curated categories`);
       assert.equal(r.discoveredVia, "npm-search", "an uncovered need must be routed to live discovery");
-      assert.ok(r.caveats.length > 0, "discovered results need the not-a-curated-category caveat");
-      assert.match(r.caveats[0], /not one of the .* curated categories/i);
+      assert.ok(r.caveats.length > 0, "discovered results need a provenance caveat");
+      // What the caveat has to convey: where these came from, and that the
+      // order is npm's relevance rather than a verdict.
+      assert.match(r.caveats[0], /searching npm live/i);
+      assert.match(r.caveats[0], /NOT a judgement about which is best/);
+      assert.match(r.caveats[0], /shortlist to verify/i);
 
       const returned = r.recommendations.map((x) => x.package);
       const leaked = returned.filter((p) => CORPUS_TOP_SCORERS.includes(p));
       assert.deepEqual(leaked, [], `answered "${need}" with corpus-wide top scorers: ${leaked.join(", ")}`);
     });
   }
+
+  test("a discovery answer never recites the internal category list", async () => {
+    // The caveat used to open with "not one of the 10 curated categories
+    // (auth-jwt, csv-parsing, date-time, ...)". To a model that reads as a
+    // statement of coverage, and the actual coverage is all of npm — so the
+    // one branch that exists to answer everything else was leading with a
+    // list implying it could not. The taxonomy is how ranking works
+    // internally; it belongs in list_categories, not in every answer.
+    const keys = (await listCategories()).map((c) => c.key);
+    assert.ok(keys.length >= 10, "premise: there are internal category keys to leak");
+
+    const r = await recommend({ need: "pdf" });
+    const prose = [...r.caveats, r.note ?? ""].join("\n");
+    const leaked = keys.filter((k) => prose.includes(k));
+    assert.deepEqual(leaked, [], `discovery prose recites internal category keys: ${leaked.join(", ")}`);
+
+    // The structured field still carries the same fact, which is what a
+    // caller should branch on anyway.
+    assert.equal(r.matchedCategory, null);
+    assert.equal(r.discoveredVia, "npm-search");
+  });
 
   test("discovered candidates actually relate to what was asked", async () => {
     const r = await recommend({ need: "pdf" });
