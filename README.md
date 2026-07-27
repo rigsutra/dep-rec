@@ -398,4 +398,4 @@ problem it's trying to solve:
 ## License
 
 MIT © Ashish Singh ·
-[github.com/AshishPodtech/package_rec](https://github.com/AshishPodtech/package_rec)
+[github.com/rigsutra/dep-rec](https://github.com/rigsutra/dep-rec)
