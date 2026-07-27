@@ -9,8 +9,6 @@
 // for why that was worth doing rather than shipping a default install with
 // an unpatchable advisory in it.
 
-// Must come first: installs the filter before node:sqlite is ever touched.
-import "./quiet-sqlite-warning.js";
 import { readFileSync } from "node:fs";
 import { listCategories, recommend, checkPackage, MAX_LIMIT } from "./data.js";
 import { createServer, type ToolSpec } from "./mcp/protocol.js";

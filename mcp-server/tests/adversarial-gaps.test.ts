@@ -28,8 +28,8 @@ function record(concept: string, isCovered: boolean, detail = "") {
 
 before(async () => {
   const dir = mkdtempSync(join(tmpdir(), "dep-rec-gaps-"));
-  dbPath = join(dir, "store.db");
-  copyFileSync(join(REPO_ROOT, "data/store.db"), dbPath);
+  dbPath = join(dir, "store.json");
+  copyFileSync(join(REPO_ROOT, "data/store.json"), dbPath);
   mcp = await openMcp({ dbPath });
 });
 

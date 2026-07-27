@@ -4,7 +4,24 @@ import { searchPackages } from "./sources/npm.js";
 import type { PackageRow } from "./store/db.js";
 import { checkTyposquat } from "./store/typosquat.js";
 import { checkRecommendable, isRecommendable } from "./store/eligibility.js";
+import { guidanceAsOf, parseDecision } from "./store/version-safety.js";
 import type { RegistryMissCode } from "./sources/npm.js";
+
+/**
+ * Re-decides the 30-day cooldown against today rather than replaying whatever
+ * was true when the row was written.
+ *
+ * The curated `recommend` path reads the store with no freshness check, so a
+ * stored answer is served exactly as written — potentially for months. The
+ * held-back version in it stops being the right answer the moment the release
+ * it was avoiding clears the window on its own, and every held-back package
+ * reaches that point eventually. Recomputing here is offline and costs a JSON
+ * parse; see version-safety.ts for what is stored to make that possible.
+ */
+function currentGuidance(p: PackageRow): { recommendedVersion: string; reason: string } | null {
+  const decision = parseDecision(p.version_decision);
+  return decision ? guidanceAsOf(decision) : null;
+}
 
 export const DEFAULT_LIMIT = 5;
 export const MAX_LIMIT = 20;
@@ -351,7 +368,9 @@ function toRecommendation(p: PackageRow): Recommendation {
   // an install target the caller can use beats a null, and "latest" is what
   // they would have got anyway without this field. The fallback is silent
   // precisely because it is not a downgrade in behaviour.
-  const recommendedVersion = p.recommended_version ?? p.latest_version;
+  const fresh = currentGuidance(p);
+  const recommendedVersion = fresh?.recommendedVersion ?? p.recommended_version ?? p.latest_version;
+  const guidance = fresh?.reason ?? p.version_guidance;
   const differs = Boolean(recommendedVersion && p.latest_version && recommendedVersion !== p.latest_version);
   return {
     package: p.name,
@@ -362,7 +381,7 @@ function toRecommendation(p: PackageRow): Recommendation {
     reasons: p.score_reasons,
     recommendedVersion,
     latestVersion: p.latest_version,
-    versionNote: differs && p.version_guidance ? p.version_guidance : undefined,
+    versionNote: differs && guidance ? guidance : undefined,
   };
 }
 
@@ -516,9 +535,10 @@ export async function checkPackage(name: string): Promise<CheckPackageResult> {
     },
     weeklyDownloads: row.weekly_downloads,
     versionGuidance:
-      row.recommended_version && row.version_guidance
+      currentGuidance(row) ??
+      (row.recommended_version && row.version_guidance
         ? { recommendedVersion: row.recommended_version, reason: row.version_guidance }
-        : undefined,
+        : undefined),
     typosquatWarning: typosquat.suspicious
       ? { targetPackage: typosquat.targetPackage!, targetWeeklyDownloads: typosquat.targetWeeklyDownloads!, reason: typosquat.reason! }
       : undefined,

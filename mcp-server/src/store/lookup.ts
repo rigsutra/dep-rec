@@ -95,7 +95,11 @@ async function fetchAndStore(
 
   if (doc.latestVersion) {
     const guidance = await resolveRecommendedVersion(name, doc.latestVersion, doc.versionHistory, vulnResult);
-    upsertVersionGuidance(name, guidance.recommendedVersion, guidance.reason);
+    upsertVersionGuidance(name, {
+      recommendedVersion: guidance.recommendedVersion,
+      guidance: guidance.reason,
+      decision: guidance.decision,
+    });
   }
 
   const row = getPackage(name)!;

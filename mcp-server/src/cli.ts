@@ -4,8 +4,6 @@
 // directly, and for any AI agent/script that isn't MCP-aware but can shell
 // out to a devDependency's bin.
 
-// Must come first: installs the filter before node:sqlite is ever touched.
-import "./quiet-sqlite-warning.js";
 import { parseArgs } from "node:util";
 import { listCategories, recommend, checkPackage, MAX_LIMIT } from "./data.js";
 
@@ -25,7 +23,7 @@ Options:
   --db <path>   Use a different store file instead of the one inside the
                 installed package. Also settable as DEP_REC_DB_PATH. Worth
                 using while developing against a linked checkout, otherwise
-                every lookup writes into the repo's own data/store.db.
+                every lookup writes into the repo's own data/store.json.
 `;
 
 // Must be applied before anything touches the store, which resolves this

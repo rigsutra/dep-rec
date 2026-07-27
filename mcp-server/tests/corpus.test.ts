@@ -23,8 +23,8 @@ let nameDownloads = new Map<string, number>();
 
 before(async () => {
   const dir = mkdtempSync(join(tmpdir(), "dep-rec-corpus-"));
-  const dbCopy = join(dir, "store.db");
-  copyFileSync(join(REPO_ROOT, "data/store.db"), dbCopy);
+  const dbCopy = join(dir, "store.json");
+  copyFileSync(join(REPO_ROOT, "data/store.json"), dbCopy);
   process.env.DEP_REC_DB_PATH = dbCopy;
 
   const db = await import("../src/store/db.js");

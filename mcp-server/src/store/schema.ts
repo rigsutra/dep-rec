@@ -1,108 +1,82 @@
-// Single source of truth for the `packages` table shape.
+// Single source of truth for the shape of a stored package record.
 //
-// Declared as data rather than a literal CREATE TABLE string so the same
-// list can drive BOTH initial creation and migration of an existing
-// database. The original version only ran `CREATE TABLE IF NOT EXISTS`,
-// which meant a store created by an older release kept its old columns
-// forever: `IF NOT EXISTS` sees the table, does nothing, and the first
-// INSERT then dies with "table packages has no column named
-// has_install_scripts" — an unhandled crash, exit code 1. That is a real
-// scenario, not a hypothetical: DEP_REC_DB_PATH exists precisely so people
-// can keep a store outside node_modules, and such a store survives the
-// version bump that node_modules doesn't.
+// This used to declare a SQLite table and drive both `CREATE TABLE` and an
+// `ALTER TABLE` migration, because a store written by an older release keeps
+// its old columns forever and the first INSERT would otherwise die with
+// "table packages has no column named has_install_scripts".
+//
+// The store is now a JSON document (see db.ts for why), which makes that
+// entire class of problem disappear: a record missing a field reads back as
+// `undefined`, and every field is normalised on read anyway. What remains
+// worth declaring is the field list itself — it documents the record shape in
+// one place, and `normalizeStored` uses it to drop anything a hand-edited or
+// foreign file might have added.
+
+export type FieldType = "string" | "number" | "boolean" | "string[]";
 
 export interface ColumnDef {
   name: string;
-  type: "TEXT" | "INTEGER" | "REAL";
-  notNull?: boolean;
-  /** SQL literal. Required for a NOT NULL column to be addable to an existing table. */
-  default?: string;
-  primaryKey?: boolean;
+  type: FieldType;
+  /** Value used when the field is absent. Absent means "null is fine". */
+  default?: unknown;
 }
 
 export const PACKAGES_COLUMNS: ColumnDef[] = [
-  { name: "name", type: "TEXT", primaryKey: true },
-  { name: "categories", type: "TEXT", notNull: true, default: "'[]'" },
-  { name: "license", type: "TEXT" },
-  { name: "maintainers", type: "INTEGER", notNull: true, default: "0" },
-  { name: "created_at", type: "TEXT" },
-  { name: "modified_at", type: "TEXT" },
-  { name: "latest_version", type: "TEXT" },
-  { name: "dependencies_count", type: "INTEGER", notNull: true, default: "0" },
-  { name: "has_install_scripts", type: "INTEGER", notNull: true, default: "0" },
-  { name: "deprecated", type: "INTEGER", notNull: true, default: "0" },
-  { name: "esm_support", type: "INTEGER", notNull: true, default: "0" },
-  { name: "typescript_support", type: "INTEGER", notNull: true, default: "0" },
-  { name: "release_cadence_days", type: "REAL" },
-  { name: "weekly_downloads", type: "INTEGER", notNull: true, default: "0" },
-  { name: "vulnerability_ids", type: "TEXT", notNull: true, default: "'[]'" },
-  { name: "security_check_failed", type: "INTEGER", notNull: true, default: "0" },
-  { name: "downloads_check_failed", type: "INTEGER", notNull: true, default: "0" },
-  { name: "raw_fetched_at", type: "TEXT", notNull: true },
-  { name: "first_seen_at", type: "TEXT", notNull: true },
-  { name: "recommended_version", type: "TEXT" },
-  { name: "version_guidance", type: "TEXT" },
-  { name: "score_total", type: "REAL" },
-  { name: "score_security", type: "REAL" },
-  { name: "score_maintenance", type: "REAL" },
-  { name: "score_compatibility", type: "REAL" },
-  { name: "score_community", type: "REAL" },
-  { name: "score_supply_chain", type: "REAL" },
-  { name: "score_reasons", type: "TEXT", notNull: true, default: "'[]'" },
-  { name: "score_method", type: "TEXT" },
-  { name: "score_computed_at", type: "TEXT" },
+  { name: "name", type: "string" },
+  { name: "categories", type: "string[]", default: [] },
+  { name: "license", type: "string" },
+  { name: "maintainers", type: "number", default: 0 },
+  { name: "created_at", type: "string" },
+  { name: "modified_at", type: "string" },
+  { name: "latest_version", type: "string" },
+  { name: "dependencies_count", type: "number", default: 0 },
+  { name: "has_install_scripts", type: "boolean", default: false },
+  { name: "deprecated", type: "boolean", default: false },
+  { name: "esm_support", type: "boolean", default: false },
+  { name: "typescript_support", type: "boolean", default: false },
+  { name: "release_cadence_days", type: "number" },
+  { name: "weekly_downloads", type: "number", default: 0 },
+  { name: "vulnerability_ids", type: "string[]", default: [] },
+  { name: "security_check_failed", type: "boolean", default: false },
+  { name: "downloads_check_failed", type: "boolean", default: false },
+  { name: "raw_fetched_at", type: "string", default: "" },
+  { name: "first_seen_at", type: "string", default: "" },
+  { name: "recommended_version", type: "string" },
+  { name: "version_guidance", type: "string" },
+  // The cooldown decision as structured JSON — which version, on what basis,
+  // and the release dates of every candidate that could overtake it. Lets the
+  // 30-day window be re-evaluated against today's date on every read instead
+  // of being frozen at the moment the row was written. See version-safety.ts;
+  // `recommended_version` and `version_guidance` above are the rendering of
+  // this as it stood at write time, kept for callers that just want a string.
+  { name: "version_decision", type: "string" },
+  { name: "score_total", type: "number" },
+  { name: "score_security", type: "number" },
+  { name: "score_maintenance", type: "number" },
+  { name: "score_compatibility", type: "number" },
+  { name: "score_community", type: "number" },
+  { name: "score_supply_chain", type: "number" },
+  { name: "score_reasons", type: "string[]", default: [] },
+  { name: "score_method", type: "string" },
+  { name: "score_computed_at", type: "string" },
 ];
 
-function createClause(c: ColumnDef): string {
-  const parts = [c.name, c.type];
-  if (c.primaryKey) parts.push("PRIMARY KEY");
-  if (c.notNull) parts.push("NOT NULL");
-  if (c.default !== undefined) parts.push(`DEFAULT ${c.default}`);
-  return parts.join(" ");
-}
+const FIELD_NAMES = new Set(PACKAGES_COLUMNS.map((c) => c.name));
 
-// SQLite refuses `ALTER TABLE ... ADD COLUMN` for a NOT NULL column with no
-// default — there would be no value to backfill existing rows with. Such a
-// column is added nullable instead; in practice this only affects columns
-// that predate every shipped release, so it never fires, but silently
-// generating invalid SQL would be worse than a slightly weaker constraint.
-function addClause(c: ColumnDef): string {
-  const parts = [c.name, c.type];
-  if (c.notNull && c.default !== undefined) parts.push("NOT NULL");
-  if (c.default !== undefined) parts.push(`DEFAULT ${c.default}`);
-  return parts.join(" ");
-}
-
-export const SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS packages (
-  ${PACKAGES_COLUMNS.map(createClause).join(",\n  ")}
-);
-CREATE INDEX IF NOT EXISTS idx_packages_raw_fetched_at ON packages(raw_fetched_at);
-`;
-
-export interface MigrationLike {
-  prepare(sql: string): { all(): unknown[] };
-  exec(sql: string): void;
-}
+/** The on-disk record. Deliberately loose — db.ts validates on read. */
+export type StoredRecord = Record<string, unknown> & { name: string };
 
 /**
- * Brings an existing `packages` table up to the current column set.
- * Returns the columns that were added, so callers can report a migration
- * rather than have it happen invisibly. Additive only: a column that is no
- * longer in PACKAGES_COLUMNS is left alone rather than dropped, since
- * dropping data on open is not a thing a read path should ever do.
+ * Keeps only declared fields, so a record carrying junk (hand-edited file,
+ * a document from some other tool) cannot smuggle extra keys into a response.
+ * Values are NOT coerced here: db.ts does that, and it needs to see the
+ * original value to decide whether the row is damaged.
  */
-export function migratePackagesTable(db: MigrationLike): string[] {
-  const existing = new Set(
-    (db.prepare("PRAGMA table_info(packages)").all() as Array<{ name: string }>).map((r) => r.name)
-  );
-  if (existing.size === 0) return []; // table didn't exist; SCHEMA_SQL just created it correctly
-
-  const added: string[] = [];
-  for (const col of PACKAGES_COLUMNS) {
-    if (existing.has(col.name)) continue;
-    db.exec(`ALTER TABLE packages ADD COLUMN ${addClause(col)}`);
-    added.push(col.name);
+export function normalizeStored(raw: Record<string, unknown>): StoredRecord | null {
+  if (typeof raw.name !== "string" || raw.name.length === 0) return null;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(raw)) {
+    if (FIELD_NAMES.has(key)) out[key] = raw[key];
   }
-  return added;
+  return out as StoredRecord;
 }

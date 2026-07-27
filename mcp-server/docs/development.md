@@ -13,46 +13,39 @@ npm link
 ```
 
 `dep-rec` is then on your PATH from any directory. **One trap worth knowing
-about:** a linked install points at this repo's own `data/store.db`, so
+about:** a linked install points at this repo's own `data/store.json`, so
 every lookup writes into the artifact that ships inside the package —
 `dep-rec check chalk` from a scratch directory added `chalk` to it as row
 500 the first time this was tried. Use a scratch store while developing:
 
 ```bash
-cp data/store.db /tmp/mystore.db
-dep-rec check express --db /tmp/mystore.db
-dep-rec recommend "pdf" --db /tmp/mystore.db
+cp data/store.json /tmp/mystore.json
+dep-rec check express --db /tmp/mystore.json
+dep-rec recommend "pdf" --db /tmp/mystore.json
 ```
 
 `--db` and `DEP_REC_DB_PATH` do the same thing. `npm unlink -g dep-rec`
 removes the link.
 
-### About the SQLite warning
+### About the store format
 
-Node used to print this on every single invocation:
+The store is a single JSON document, replaced atomically on every write
+(temp file, then rename), with a lock directory next to it for cross-process
+exclusion. `data/store.json` is both the corpus that ships and the cache
+that gets written to.
 
-```
-(node:24808) ExperimentalWarning: SQLite is an experimental feature and might change at any time
-```
+It was SQLite via `node:sqlite` until 0.6.0. That bought real concurrent
+write safety and cost three things: a hard floor of Node 22.5, an
+`ExperimentalWarning: SQLite is an experimental feature` on stderr for every
+single invocation, and a schema/migration module. For ~500 rows that no query
+touches in a non-trivial way, none of it was earning its keep — see
+[reviews and hardening](reviews-and-hardening.md) for the full reasoning and
+what had to be re-proven.
 
-That is Node telling *us* that an API we chose is experimental — it is not
-something a user of the CLI can act on, and it was the first line of every
-run. It is now filtered, narrowly:
-[`src/quiet-sqlite-warning.ts`](../src/quiet-sqlite-warning.ts) suppresses
-that one warning and nothing else, rather than reaching for
-`NODE_NO_WARNINGS=1` and hiding real deprecations along with it.
-
-Getting it to actually work needed one non-obvious change. ES modules link
-the entire graph before evaluating any of it, so a static
-`import { DatabaseSync } from "node:sqlite"` fires the warning before a
-single line of our code has run — the filter was installed too late to
-catch anything. `store/db.ts` now loads `node:sqlite` on first use instead,
-with a type-only import for the types.
-
-The underlying tradeoff is unchanged and still disclosed: `node:sqlite`
-requires Node 22+ and its API can change. Silencing the warning does not
-make that go away, it just stops repeating it at someone who has no say in
-it.
+If you are editing `store/db.ts`, the thing to be careful about is that
+every mutation re-reads the file under the lock before applying. Skipping that
+reintroduces lost updates between processes, which the concurrency tests in
+`tests/review-findings.test.ts` will catch.
 
 
 ## Try it from source (fast local loop)

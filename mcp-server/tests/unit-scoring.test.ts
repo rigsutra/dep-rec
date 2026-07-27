@@ -7,7 +7,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { scoreAbsolute, scoreCategoryGroup, type ScoreResult } from "../src/store/scoring.js";
 import { CAPABILITY_CAVEATS, CAPABILITY_CAVEAT_PENALTY } from "../src/store/capability-caveats.js";
-import { resolveRecommendedVersion } from "../src/store/version-safety.js";
+import { resolveRecommendedVersion, guidanceAsOf, parseDecision, COOLDOWN_DAYS } from "../src/store/version-safety.js";
 import { row, iso } from "./helpers.js";
 
 const SUBSCORES = ["security", "maintenance", "compatibility", "community", "supplyChain"] as const;
@@ -517,6 +517,116 @@ describe("version safety — branches decidable without network", () => {
     assert.equal(g.recommendedVersion, "4.1.1");
     assert.match(g.reason, /major version behind/i);
     assert.match(g.reason, /different API/i);
+  });
+
+  test("the stored decision replays to the same answer it was rendered with", async () => {
+    const g = await resolveRecommendedVersion(
+      "replay",
+      "5.2.0",
+      [
+        { version: "5.1.0", releasedAt: iso(100) },
+        { version: "5.2.0", releasedAt: iso(5) },
+      ],
+      { ok: true, vulnerabilityIds: [] }
+    );
+    const replayed = guidanceAsOf(g.decision);
+    assert.equal(replayed.recommendedVersion, g.recommendedVersion);
+    assert.equal(replayed.reason, g.reason, "write-time and read-time prose must come from the same code path");
+  });
+
+  test("a decision survives a JSON round trip", () => {
+    assert.equal(parseDecision(null), null);
+    assert.equal(parseDecision("not json"), null);
+    assert.equal(parseDecision('{"pick":"1.0.0"}'), null, "a decision without entries is not usable");
+  });
+});
+
+// The window has to mean "30 days before today", not "30 days before whoever
+// last refreshed this row". Curated packages are served from the store with no
+// freshness check, so a frozen answer keeps holding a release back long after
+// that release has aged past the window on its own — and every held-back
+// package reaches that point eventually. These pin the clock actually moving.
+describe("version safety — the cooldown window tracks today's date", () => {
+  const DAY = 86_400_000;
+
+  // gaxios as it actually stood on 2026-07-27: latest 7.3.0 four days old,
+  // with three older stable releases behind it.
+  const HISTORY = [
+    { version: "7.1.5", releasedAt: iso(53) },
+    { version: "7.1.6", releasedAt: iso(21) },
+    { version: "7.2.0", releasedAt: iso(19) },
+    { version: "7.3.0", releasedAt: iso(4) },
+  ];
+
+  async function decisionFor() {
+    const g = await resolveRecommendedVersion("gaxios-shaped", "7.3.0", HISTORY, { ok: true, vulnerabilityIds: [] });
+    return g.decision;
+  }
+
+  test("the pick advances as each release ages into the window", async () => {
+    const d = await decisionFor();
+    const at = (days: number) => guidanceAsOf(d, Date.now() + days * DAY).recommendedVersion;
+
+    assert.equal(at(0), "7.1.5", "today: only 7.1.5 has cleared the window");
+    assert.equal(at(10), "7.1.6", "+10d: 7.1.6 is now 31 days old and is the higher version");
+    assert.equal(at(15), "7.2.0", "+15d: 7.2.0 has cleared it too");
+    assert.equal(at(30), "7.3.0", "+30d: latest itself has cleared the window");
+    assert.equal(at(400), "7.3.0", "and it stays there — the answer converges on latest");
+  });
+
+  test("the day counts in the explanation are recomputed, never replayed", async () => {
+    const d = await decisionFor();
+    const today = guidanceAsOf(d, Date.now());
+    const later = guidanceAsOf(d, Date.now() + 12 * DAY);
+
+    assert.match(today.reason, /only 4 day\(s\) old/, "premise: latest is 4 days old today");
+    assert.ok(
+      !/only 4 day\(s\) old/.test(later.reason),
+      `twelve days on, the explanation still claims latest is 4 days old: ${later.reason}`
+    );
+    assert.match(later.reason, /16 day\(s\) old/, "it should say 16 days, which is what it is by then");
+  });
+
+  test("once latest clears the window the answer is latest, with no held-back wording", async () => {
+    const d = await decisionFor();
+    const g = guidanceAsOf(d, Date.now() + 60 * DAY);
+    assert.equal(g.recommendedVersion, "7.3.0");
+    assert.match(g.reason, new RegExp(`past the ${COOLDOWN_DAYS}-day observation window`));
+    assert.ok(!/over the newer/i.test(g.reason), "nothing is being held back any more");
+  });
+
+  test("a version that ages in after collection is not passed off as OSV-verified", async () => {
+    // The stored vulnerability check was run against 7.1.5. When 7.1.6
+    // overtakes it purely by ageing, nothing has checked 7.1.6 — claiming the
+    // original "OSV confirms no known vulnerabilities" for it would be the
+    // fail-open answer this project exists to avoid.
+    const d = await decisionFor();
+    const later = guidanceAsOf(d, Date.now() + 10 * DAY);
+    assert.equal(later.recommendedVersion, "7.1.6");
+    assert.ok(
+      !/OSV confirms/i.test(later.reason),
+      `claimed OSV verification for a version that was never checked: ${later.reason}`
+    );
+    assert.match(later.reason, /was not checked at that time|cleared the window after/i);
+  });
+
+  test("a verified decision to prefer latest is not undone by ageing", async () => {
+    // When OSV confirmed latest fixes something the older release has, that
+    // conclusion does not expire just because another version got older.
+    const g = await resolveRecommendedVersion(
+      "latest-fixes-shaped",
+      "3.0.1",
+      [
+        { version: "3.0.0", releasedAt: iso(60) },
+        { version: "3.0.1", releasedAt: iso(2) },
+      ],
+      { ok: true, vulnerabilityIds: [] }
+    );
+    // Force the branch by hand: the resolver needs a live OSV call to reach it.
+    const decision = { ...g.decision, pick: "3.0.1", basis: "latest-fixes" as const, alternative: "3.0.0", detail: "GHSA-x" };
+    for (const days of [0, 5, 20]) {
+      assert.equal(guidanceAsOf(decision, Date.now() + days * DAY).recommendedVersion, "3.0.1", `changed its mind at +${days}d`);
+    }
   });
 
   test("a same-major pick is not labelled a major downgrade", async () => {

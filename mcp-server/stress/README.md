@@ -12,7 +12,7 @@ what it does on the way down. Exit code is non-zero if any **violation**
 fires — a violation is the tool being *wrong*, not the tool being slow or
 declining to answer.
 
-Everything runs against temp copies of `data/store.db`. Nothing here
+Everything runs against temp copies of `data/store.json`. Nothing here
 writes to the shipped artifact.
 
 | phase | what it does |

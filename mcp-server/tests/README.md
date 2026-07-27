@@ -2,7 +2,7 @@
 
 Adversarial by design. The goal is not to demonstrate that the code works —
 it is to find the places where it lies, crashes, or quietly does the wrong
-thing. Seven suites, 437 scenarios, >1000 packages exercised.
+thing. Seven suites, 447 scenarios, >1000 packages exercised.
 
 ```bash
 npm test             # everything
@@ -19,7 +19,7 @@ the project's stance on dependencies elsewhere.
 
 ## Safety
 
-Every suite that touches the store copies `data/store.db` to a temp
+Every suite that touches the store copies `data/store.json` to a temp
 directory and points `DEP_REC_DB_PATH` at the copy, so a test can never
 corrupt the artifact that ships inside the package. (`DEP_REC_DB_PATH` was
 added for exactly this reason — the path used to be hardcoded.)
@@ -73,7 +73,7 @@ All of these were real, in shipped or about-to-ship code, and are now fixed:
 5. **Short-name false positives.** `qs`/`ws` and `next`/`nuxt` are all real and
    all one edit apart. Names under 4 characters are no longer accused, and any
    name on the curated popular list is never itself accused.
-6. **Test pollution baked into the shipped database.** `data/store.db` had been
+6. **Test pollution baked into the shipped database.** `data/store.json` had been
    committed containing packages added by ad-hoc `check_package` calls during
    development — including `reactt`, a known typosquat, sitting in the
    "recommended packages" corpus. Rebuilt clean from the collector output.
@@ -111,7 +111,7 @@ missed, since that is the more useful lesson than the fixes:
 1. **The `overrides` no-op** — no test ever asserted anything about the
    shape of `package.json`. A fix that lives in metadata needs a test that
    reads metadata.
-2. **No schema migration** — every suite copies `data/store.db`, which is
+2. **No schema migration** — every suite copies `data/store.json`, which is
    always current. Nothing ever opened a store written by an *older*
    version, so the one code path that crashes was the one path never
    exercised.
@@ -173,7 +173,7 @@ the point where things fall over rather than asserting known properties.
 Three bugs came out of it that 411 assertions had not:
 
 - **One corrupt JSON column took down the whole tool.** Every suite copies a
-  *healthy* `data/store.db`, so no test had ever read a damaged row.
+  *healthy* `data/store.json`, so no test had ever read a damaged row.
 - **A corrupt score of `999999` was ranked #1.** Scores were validated where
   they are computed, never where they are read back.
 - **One bad row produced a 216 KB response.** No test asserted anything about

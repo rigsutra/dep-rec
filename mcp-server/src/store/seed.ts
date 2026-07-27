@@ -1,11 +1,11 @@
 // One-time (or re-runnable) bootstrap: import stage1-collector's raw
 // per-package data into the store, then run an initial scoring pass.
-// This is a dev-time step — the resulting data/store.db file is what
+// This is a dev-time step — the resulting data/store.json file is what
 // actually ships inside the package (see package.json's "files"), not
 // this script.
 
 import { readFile } from "node:fs/promises";
-import { upsertRaw, listAll, upsertVersionGuidance, upsertLatestVersion } from "./db.js";
+import { upsertRaw, listAll, upsertVersionGuidance, upsertLatestVersion, withTransaction } from "./db.js";
 import { rescoreCategory } from "./lookup.js";
 import { fetchPackageDoc } from "../sources/npm.js";
 import { queryVulnerabilities } from "../sources/osv.js";
@@ -48,10 +48,10 @@ interface CollectorRecord {
  */
 async function backfillVersionGuidance(records: CollectorRecord[]): Promise<void> {
   const queue = [...records];
-  let resolved = 0;
   let failed = 0;
-  let drifted = 0;
   const heldBack: Array<{ name: string; latest: string; pick: string }> = [];
+  const drifted: Array<{ name: string; latest: string }> = [];
+  const results: Array<{ name: string; guidance: Awaited<ReturnType<typeof resolveRecommendedVersion>> }> = [];
 
   const worker = async (): Promise<void> => {
     for (let p = queue.shift(); p !== undefined; p = queue.shift()) {
@@ -60,14 +60,10 @@ async function backfillVersionGuidance(records: CollectorRecord[]): Promise<void
         failed++;
         continue;
       }
-      if (doc.latestVersion !== p.npm.latestVersion) {
-        drifted++;
-        upsertLatestVersion(p.name, doc.latestVersion);
-      }
+      if (doc.latestVersion !== p.npm.latestVersion) drifted.push({ name: p.name, latest: doc.latestVersion });
       const vulnCheck = await queryVulnerabilities(p.name, doc.latestVersion);
       const guidance = await resolveRecommendedVersion(p.name, doc.latestVersion, doc.versionHistory, vulnCheck);
-      upsertVersionGuidance(p.name, guidance.recommendedVersion, guidance.reason);
-      resolved++;
+      results.push({ name: p.name, guidance });
       if (guidance.recommendedVersion !== doc.latestVersion) {
         heldBack.push({ name: p.name, latest: doc.latestVersion, pick: guidance.recommendedVersion });
       }
@@ -76,9 +72,27 @@ async function backfillVersionGuidance(records: CollectorRecord[]): Promise<void
 
   await Promise.all(Array.from({ length: 6 }, worker));
 
+  // Collected first, written once. Every write now rewrites the whole store
+  // file, so 499 individual upserts would be 499 full serialisations — and
+  // interleaving them with network calls would hold the cross-process lock
+  // for the length of the entire fetch.
+  withTransaction(() => {
+    for (const d of drifted) upsertLatestVersion(d.name, d.latest);
+    for (const r of results) {
+      upsertVersionGuidance(r.name, {
+        recommendedVersion: r.guidance.recommendedVersion,
+        guidance: r.guidance.reason,
+        decision: r.guidance.decision,
+      });
+    }
+  });
+  const resolved = results.length;
+
   console.log(`\nResolved install versions for ${resolved}/${records.length} packages.`);
   if (failed > 0) console.log(`  ${failed} could not be resolved (registry miss) and keep a null recommended_version.`);
-  if (drifted > 0) console.log(`  ${drifted} had a latest_version newer than the collector snapshot; corrected in place.`);
+  if (drifted.length > 0) {
+    console.log(`  ${drifted.length} had a latest_version newer than the collector snapshot; corrected in place.`);
+  }
   console.log(`  ${heldBack.length} resolve to something older than latest (inside the ${COOLDOWN_DAYS}-day window):`);
   for (const h of heldBack.slice(0, 12)) console.log(`    - ${h.name}: latest ${h.latest} -> recommending ${h.pick}`);
   if (heldBack.length > 12) console.log(`    ... and ${heldBack.length - 12} more`);
@@ -90,34 +104,38 @@ async function main() {
   );
 
   const nowIso = new Date().toISOString();
-  for (const p of raw) {
-    upsertRaw({
-      name: p.name,
-      categories: p.categories,
-      license: p.npm.license,
-      maintainers: p.npm.maintainers,
-      created_at: p.npm.createdAt,
-      modified_at: p.npm.modifiedAt,
-      latest_version: p.npm.latestVersion,
-      dependencies_count: p.npm.dependenciesCount,
-      // stage1-collector doesn't capture this yet — the curated baseline
-      // starts as "unknown/false" here and picks up the real value the
-      // first time each package gets touched by check_package or the
-      // refresh worker, both of which use the live-fetch path that does
-      // capture it.
-      has_install_scripts: false,
-      deprecated: p.npm.deprecated,
-      esm_support: p.compatibility.esmSupport,
-      typescript_support: p.compatibility.typescriptSupport,
-      release_cadence_days: p.compatibility.releaseCadenceDays,
-      weekly_downloads: p.downloads.weekly,
-      vulnerability_ids: p.security.vulnerabilityIds,
-      security_check_failed: false, // stage1-collector's OSV batch call succeeded for these
-      downloads_check_failed: false,
-      raw_fetched_at: nowIso,
-      first_seen_at: nowIso,
-    });
-  }
+  // One transaction for the whole import: each upsert rewrites the entire
+  // store file, so 499 of them individually is 499 full serialisations.
+  withTransaction(() => {
+    for (const p of raw) {
+      upsertRaw({
+        name: p.name,
+        categories: p.categories,
+        license: p.npm.license,
+        maintainers: p.npm.maintainers,
+        created_at: p.npm.createdAt,
+        modified_at: p.npm.modifiedAt,
+        latest_version: p.npm.latestVersion,
+        dependencies_count: p.npm.dependenciesCount,
+        // stage1-collector doesn't capture this yet — the curated baseline
+        // starts as "unknown/false" here and picks up the real value the
+        // first time each package gets touched by check_package or the
+        // refresh worker, both of which use the live-fetch path that does
+        // capture it.
+        has_install_scripts: false,
+        deprecated: p.npm.deprecated,
+        esm_support: p.compatibility.esmSupport,
+        typescript_support: p.compatibility.typescriptSupport,
+        release_cadence_days: p.compatibility.releaseCadenceDays,
+        weekly_downloads: p.downloads.weekly,
+        vulnerability_ids: p.security.vulnerabilityIds,
+        security_check_failed: false, // stage1-collector's OSV batch call succeeded for these
+        downloads_check_failed: false,
+        raw_fetched_at: nowIso,
+        first_seen_at: nowIso,
+      });
+    }
+  });
   console.log(`Seeded ${raw.length} packages into the store.`);
 
   await backfillVersionGuidance(raw);

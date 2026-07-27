@@ -44,7 +44,7 @@ Runs as an **MCP server** an assistant calls mid-conversation, and as a plain
 npm install --save-dev dep-rec
 ```
 
-Node 22+.
+Node 18.3+. Zero dependencies, nothing to compile.
 
 ## Quick start
 
@@ -261,7 +261,24 @@ backwards picks up backports: for `undici` that chose `6.27.0`, a patch to the
 old line released after 8.x shipped, when `8.5.0` was both newer and past the
 window. Three of the 141 hit that.
 
-Of the 499 seeded packages, 132 currently resolve to something older than
+**The window is measured against today**, not against whenever the data was
+collected. That matters more than it sounds: an answer resolved once and
+frozen keeps holding a release back long after that release has aged past 30
+days by itself. What's stored is the decision and the candidates' release
+dates, not a rendered sentence, so a held-back package walks forward on its
+own as each version ages in and converges on `latest`:
+
+```
+today   gaxios@7.1.5   (7.3.0 is 4 days old)
++10d    gaxios@7.1.6   (7.1.6 has now cleared the window, and is higher)
++15d    gaxios@7.2.0
++30d    gaxios@7.3.0   ← latest cleared it too; nothing held back any more
+```
+
+When a version overtakes the pick purely by ageing, it says so rather than
+reusing the older version's OSV result — nothing checked the new one.
+
+Of the 499 seeded packages, 131 currently resolve to something older than
 `latest`.
 
 **Maintainer count is reported, not scored.** It used to be a third of the
@@ -352,8 +369,10 @@ problem it's trying to solve:
 - **Edge Runtime fit is not sandbox-tested.** `runtime: "edge"` returns an
   explicit caveat rather than answering from ESM support alone.
 - **npm only.** No PyPI, crates.io or Maven.
-- **`node:sqlite` is an experimental Node API**, so this needs Node 22+ and
-  the API may change.
+- **Concurrent writes serialise on one file lock.** The store is a single
+  JSON document replaced atomically, so simultaneous writers queue rather
+  than merge. Measured at 32 concurrent writing processes: no failures, but
+  p50 latency reaches ~11s at that level. Reads never block.
 
 ## Documentation
 
@@ -363,7 +382,7 @@ problem it's trying to solve:
   packing
 - [Reviews and hardening](docs/reviews-and-hardening.md) — every external
   review finding, the stress harness, and the bugs both found
-- [Tests](tests/README.md) — 437 adversarial scenarios across seven suites
+- [Tests](tests/README.md) — 447 adversarial scenarios across seven suites
 
 ## License
 

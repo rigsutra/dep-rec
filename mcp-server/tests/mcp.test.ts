@@ -17,8 +17,8 @@ let dbPath: string;
 
 before(async () => {
   const dir = mkdtempSync(join(tmpdir(), "dep-rec-mcp-"));
-  dbPath = join(dir, "store.db");
-  copyFileSync(join(REPO_ROOT, "data/store.db"), dbPath);
+  dbPath = join(dir, "store.json");
+  copyFileSync(join(REPO_ROOT, "data/store.json"), dbPath);
   mcp = await openMcp({ dbPath });
 });
 

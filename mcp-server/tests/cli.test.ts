@@ -15,8 +15,8 @@ let dbPath: string;
 
 before(() => {
   const dir = mkdtempSync(join(tmpdir(), "dep-rec-cli-"));
-  dbPath = join(dir, "store.db");
-  copyFileSync(join(REPO_ROOT, "data/store.db"), dbPath);
+  dbPath = join(dir, "store.json");
+  copyFileSync(join(REPO_ROOT, "data/store.json"), dbPath);
 });
 
 describe("CLI — help and dispatch", () => {
@@ -356,7 +356,7 @@ describe("CLI — hostile input must not crash, lie, or escape", () => {
 
   test("a check against an unwritable database path fails loudly rather than silently", async () => {
     const r = await runCli(["check", "zod", "--json"], {
-      dbPath: join(tmpdir(), "dep-rec-nonexistent-dir-xyz", "store.db"),
+      dbPath: join(tmpdir(), "dep-rec-nonexistent-dir-xyz", "store.json"),
       timeoutMs: 30_000,
     });
     assert.notEqual(r.code, 0, "an unusable database must be an error, not an empty success");

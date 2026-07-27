@@ -7,20 +7,31 @@
 
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { DatabaseSync } from "node:sqlite";
 import { spawn } from "node:child_process";
-import { mkdtempSync, copyFileSync, rmSync, readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  copyFileSync,
+  rmSync,
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  readdirSync,
+  mkdirSync,
+  rmdirSync,
+  utimesSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { REPO_ROOT, runCli, openMcp, cleanEnv, row } from "./helpers.js";
 import { PACKAGES_COLUMNS } from "../src/store/schema.js";
+import { getPackage } from "../src/store/db.js";
 import { checkTyposquat } from "../src/store/typosquat.js";
 import { normalizeLimit, MAX_LIMIT, checkPackage, recommend } from "../src/data.js";
 import { validatePackageName, fetchPackageDoc, fetchWeeklyDownloads } from "../src/sources/npm.js";
 import { isRecommendable, checkRecommendable } from "../src/store/eligibility.js";
 
 let workDir: string;
-// Every MCP session in this file points here, never at data/store.db. An
+// Every MCP session in this file points here, never at data/store.json. An
 // earlier revision of this suite forgot, and a single `check_package` for
 // "react" wrote an uncategorised row straight into the artifact that ships
 // inside the package — the exact pollution bug the corpus suite exists to
@@ -29,16 +40,15 @@ let storePath: string;
 
 before(() => {
   workDir = mkdtempSync(join(tmpdir(), "dep-rec-review-"));
-  storePath = join(workDir, "mcp-store.db");
-  copyFileSync(join(REPO_ROOT, "data/store.db"), storePath);
+  storePath = join(workDir, "mcp-store.json");
+  copyFileSync(join(REPO_ROOT, "data/store.json"), storePath);
   // This file also calls checkPackage() in-process, not just through a
   // subprocess, so the in-process store has to be redirected too.
   process.env.DEP_REC_DB_PATH = storePath;
 });
 
 after(() => {
-  // The store keeps -wal/-shm siblings and Windows holds handles briefly;
-  // a failed cleanup must not fail the suite.
+  // Windows holds handles briefly; a failed cleanup must not fail the suite.
   try {
     rmSync(workDir, { recursive: true, force: true });
   } catch {
@@ -434,91 +444,137 @@ describe("#9 a need outside the ten categories must return nothing", () => {
 // #2 — a store created by an older release crashed instead of migrating
 // ---------------------------------------------------------------------------
 
-// The genuine 0.1.0 column set: no has_install_scripts, no
-// security_check_failed, no recommended_version, no version_guidance.
-const LEGACY_0_1_0_SCHEMA = `
-CREATE TABLE packages (
-  name TEXT PRIMARY KEY,
-  categories TEXT NOT NULL DEFAULT '[]',
-  license TEXT,
-  maintainers INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT,
-  modified_at TEXT,
-  latest_version TEXT,
-  dependencies_count INTEGER NOT NULL DEFAULT 0,
-  deprecated INTEGER NOT NULL DEFAULT 0,
-  esm_support INTEGER NOT NULL DEFAULT 0,
-  typescript_support INTEGER NOT NULL DEFAULT 0,
-  release_cadence_days REAL,
-  weekly_downloads INTEGER NOT NULL DEFAULT 0,
-  vulnerability_ids TEXT NOT NULL DEFAULT '[]',
-  raw_fetched_at TEXT NOT NULL,
-  first_seen_at TEXT NOT NULL,
-  score_total REAL,
-  score_security REAL,
-  score_maintenance REAL,
-  score_compatibility REAL,
-  score_community REAL,
-  score_supply_chain REAL,
-  score_reasons TEXT NOT NULL DEFAULT '[]',
-  score_method TEXT,
-  score_computed_at TEXT
-);
-`;
-
+// A record exactly as an older release wrote it: no has_install_scripts, no
+// security_check_failed, no recommended_version, no version_guidance, no
+// version_decision — and the array fields still JSON-encoded strings with
+// 0/1 integers for booleans, which is how SQLite held them before the store
+// became a JSON document in 0.6.0.
+//
+// So this covers both halves of the compatibility question at once: fields
+// that did not exist yet, and fields whose representation changed.
 function buildLegacyStore(file: string): void {
-  const db = new DatabaseSync(file);
-  db.exec(LEGACY_0_1_0_SCHEMA);
-  db.exec(
-    `INSERT INTO packages (name, categories, raw_fetched_at, first_seen_at, weekly_downloads, score_total, score_reasons)
-     VALUES ('left-pad', '["testing"]', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 500000, 42.0, '[]')`
-  );
-  db.close();
+  const legacy = {
+    name: "left-pad",
+    categories: '["testing"]',
+    license: null,
+    maintainers: 0,
+    created_at: null,
+    modified_at: null,
+    latest_version: null,
+    dependencies_count: 0,
+    deprecated: 0,
+    esm_support: 0,
+    typescript_support: 0,
+    release_cadence_days: null,
+    weekly_downloads: 500000,
+    vulnerability_ids: "[]",
+    raw_fetched_at: "2020-01-01T00:00:00.000Z",
+    first_seen_at: "2020-01-01T00:00:00.000Z",
+    score_total: 42.0,
+    score_reasons: "[]",
+  };
+  writeFileSync(file, JSON.stringify({ formatVersion: 1, packages: [legacy] }));
+}
+
+// No module cache-busting needed: the store resolves DEP_REC_DB_PATH on every
+// call and keys its in-memory copy by path, so pointing the variable at
+// another file is enough to read that file.
+function readLegacyRow(file: string): any {
+  const previous = process.env.DEP_REC_DB_PATH;
+  process.env.DEP_REC_DB_PATH = file;
+  try {
+    return getPackage("left-pad");
+  } finally {
+    process.env.DEP_REC_DB_PATH = previous;
+  }
 }
 
 describe("#2 legacy store must migrate, not crash", () => {
-  test("opening a 0.1.0-schema store adds every missing column", async () => {
-    const file = join(workDir, "legacy-read.db");
+  test("reading a 0.1.0-shaped store yields every current field", async () => {
+    const file = join(workDir, "legacy-read.json");
     buildLegacyStore(file);
 
     const res = await runCli(["categories", "--json"], { dbPath: file });
     assert.equal(res.code, 0, `expected clean exit, got ${res.code}\n${res.stderr}`);
-    assert.ok(!/no column named/i.test(res.stderr), res.stderr);
+    assert.ok(!/no column named|undefined/i.test(res.stderr), res.stderr);
 
-    const db = new DatabaseSync(file);
-    const present = new Set(
-      (db.prepare("PRAGMA table_info(packages)").all() as Array<{ name: string }>).map((r) => r.name)
-    );
-    db.close();
-
-    const missing = PACKAGES_COLUMNS.map((c) => c.name).filter((n) => !present.has(n));
-    assert.deepEqual(missing, [], "migration left columns behind");
+    const row = readLegacyRow(file);
+    assert.ok(row, "the legacy record must still be readable");
+    const missing = PACKAGES_COLUMNS.map((c) => c.name).filter((n) => !(n in row));
+    assert.deepEqual(missing, [], "fields absent from an old record must still read back");
   });
 
-  test("pre-existing rows survive the migration with their data intact", async () => {
-    const file = join(workDir, "legacy-data.db");
+  test("pre-existing records survive with their data intact", async () => {
+    const file = join(workDir, "legacy-data.json");
     buildLegacyStore(file);
     await runCli(["categories", "--json"], { dbPath: file });
 
-    const db = new DatabaseSync(file);
-    const row = db.prepare("SELECT * FROM packages WHERE name = 'left-pad'").get() as any;
-    db.close();
-
-    assert.equal(row.weekly_downloads, 500000, "existing data must not be reset by the migration");
+    const row = readLegacyRow(file);
+    assert.equal(row.weekly_downloads, 500000, "existing data must not be reset");
     assert.equal(row.score_total, 42.0);
-    // Added NOT NULL columns must backfill from their declared default.
-    assert.equal(row.has_install_scripts, 0);
-    assert.equal(row.security_check_failed, 0);
+    // The old SQLite representations must still be understood.
+    assert.deepEqual(row.categories, ["testing"], "a JSON-encoded array field must still parse");
+    assert.equal(row.deprecated, false, "an integer 0 must still read as false");
+    // Fields that did not exist take their declared defaults, not undefined.
+    assert.equal(row.has_install_scripts, false);
+    assert.equal(row.security_check_failed, false);
     assert.equal(row.recommended_version, null);
+    assert.equal(row.version_decision, null);
+    assert.equal(row.store_row_damaged, false, "an old-but-valid record is not damaged");
   });
 
-  test("migration is idempotent", async () => {
-    const file = join(workDir, "legacy-twice.db");
+  test("reading an old store twice is stable", async () => {
+    const file = join(workDir, "legacy-twice.json");
     buildLegacyStore(file);
     const first = await runCli(["categories", "--json"], { dbPath: file });
     const second = await runCli(["categories", "--json"], { dbPath: file });
     assert.equal(first.code, 0, first.stderr);
     assert.equal(second.code, 0, `second open must be a no-op, got:\n${second.stderr}`);
+    assert.equal(first.stdout, second.stdout);
+  });
+
+  test("the declared Node floor matches the newest API actually used", () => {
+    // The previous floor said ">=22.0.0" while the code imported node:sqlite,
+    // which landed in 22.5.0 — so 22.0 through 22.4 installed the package and
+    // crashed on first use. The floor is a claim about what runs, and it was
+    // wrong by four minor versions. Pinning it here because getting it wrong
+    // is silent: nothing in a normal test run executes on the floor version.
+    const declared = pkg.engines.node as string;
+    assert.match(declared, /^>=18\.3\.0$/, `engines.node is "${declared}"`);
+
+    // The two constraints that set it. node:sqlite is gone; util.parseArgs
+    // (18.3.0) and global fetch (18.0.0) are what remain, so 18.3.0 it is.
+    const walk = (dir: string, hits: string[] = []): string[] => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full, hits);
+        else if (entry.name.endsWith(".ts") && /from\s+["']node:sqlite["']/.test(readFileSync(full, "utf8"))) {
+          hits.push(full);
+        }
+      }
+      return hits;
+    };
+    assert.deepEqual(
+      walk(join(REPO_ROOT, "src")),
+      [],
+      "importing node:sqlite again would silently raise the real floor to 22.5 without changing engines"
+    );
+  });
+
+  test("an unreadable store fails loudly instead of being silently replaced", async () => {
+    // Starting from empty would be friendlier right up until the first write
+    // replaced a damaged-but-recoverable file with an empty one.
+    const file = join(workDir, "corrupt.json");
+    writeFileSync(file, '{"formatVersion":1,"packages":[{"name":"left-pad"');
+    const res = await runCli(["categories", "--json"], { dbPath: file });
+    assert.notEqual(res.code, 0, "a corrupt store must not be treated as an empty one");
+    assert.match(res.stderr, /not valid JSON/i);
+    assert.match(res.stderr, /refusing to overwrite/i);
+    assert.equal(
+      readFileSync(file, "utf8"),
+      '{"formatVersion":1,"packages":[{"name":"left-pad"',
+      "the damaged file must be left exactly as it was"
+    );
   });
 });
 
@@ -540,19 +596,21 @@ describe("#3 concurrent store access must wait, not fail", () => {
     kill(): void;
   }
 
+  // Holds the store lock the same way the store itself does — by creating the
+  // lock directory. Using the real protocol rather than an API call keeps this
+  // honest: if the locking scheme changes, this stops contending and the
+  // control case below fails, which is exactly the signal wanted.
   function spawnLockHolder(dbFile: string): Promise<Holder> {
     const script = join(workDir, "hold-lock.mjs");
     writeFileSync(
       script,
-      `import { DatabaseSync } from "node:sqlite";
-const db = new DatabaseSync(${JSON.stringify(dbFile)});
-db.exec("PRAGMA busy_timeout = 30000;");
-db.exec("PRAGMA journal_mode = WAL;");
-db.exec("BEGIN IMMEDIATE");
-db.prepare("UPDATE packages SET score_total = score_total WHERE name = 'left-pad'").run();
+      `import { mkdirSync, rmdirSync } from "node:fs";
+const lock = ${JSON.stringify(dbFile)} + ".lock";
+mkdirSync(lock);
 console.log("LOCKED");
 process.stdin.resume();
-process.stdin.once("data", () => { db.exec("COMMIT"); db.close(); process.exit(0); });
+process.stdin.once("data", () => { try { rmdirSync(lock); } catch {} process.exit(0); });
+process.on("exit", () => { try { rmdirSync(lock); } catch {} });
 `
     );
 
@@ -630,9 +688,9 @@ console.log("WAITED " + (Date.now() - t0));
   }
 
   test("a write blocked by another process waits for the lock instead of dying", async () => {
-    const file = join(workDir, "contended.db");
+    const file = join(workDir, "contended.json");
     buildLegacyStore(file);
-    await runCli(["categories", "--json"], { dbPath: file }); // migrate first
+    await runCli(["categories", "--json"], { dbPath: file });
 
     const holder = await spawnLockHolder(file);
     const attempt = writeInChild(file, 77) as WriteAttempt & { finished: Promise<void> };
@@ -646,7 +704,7 @@ console.log("WAITED " + (Date.now() - t0));
     holder.kill();
 
     assert.equal(attempt.code, 0, `contending write should have waited and succeeded:\n${attempt.stderr}`);
-    assert.ok(!/database is locked/i.test(attempt.stderr), attempt.stderr);
+    assert.ok(!/store is locked/i.test(attempt.stderr), attempt.stderr);
     assert.ok(
       attempt.waitedMs >= 250,
       `the write must actually have blocked on the lock, but returned in ${attempt.waitedMs}ms — the test proved nothing`
@@ -654,12 +712,12 @@ console.log("WAITED " + (Date.now() - t0));
   });
 
   test("the busy timeout is what makes that work (control case)", async () => {
-    // Without it, SQLite gives up instantly — this is the reviewer's exact
-    // failure, and asserting it here proves the fix above is load-bearing
-    // rather than an accident of timing. The lock is held for the whole
-    // lifetime of the child, so there is no window in which this can pass
-    // by luck.
-    const file = join(workDir, "contended-control.db");
+    // With a zero wait budget the contending write gives up instantly — the
+    // reviewer's exact original failure. Asserting it here proves the test
+    // above is load-bearing rather than an accident of timing. The lock is
+    // held for the whole lifetime of the child, so there is no window in
+    // which this can pass by luck.
+    const file = join(workDir, "contended-control.json");
     buildLegacyStore(file);
     await runCli(["categories", "--json"], { dbPath: file });
 
@@ -669,13 +727,35 @@ console.log("WAITED " + (Date.now() - t0));
     holder.release();
     holder.kill();
 
-    assert.notEqual(attempt.code, 0, "with busy_timeout=0 the contending write is expected to fail");
-    assert.match(attempt.stderr, /database is locked/i);
+    assert.notEqual(attempt.code, 0, "with a zero busy timeout the contending write is expected to fail");
+    assert.match(attempt.stderr, /store is locked/i);
+  });
+
+  test("a lock left behind by a dead process is reclaimed, not waited on forever", async () => {
+    // The cost of hand-rolled locking: a process killed mid-write leaves the
+    // lock directory behind, and without this the store stays wedged until
+    // someone deletes it by hand. SQLite recovered from that on its own.
+    const file = join(workDir, "stale-lock.json");
+    buildLegacyStore(file);
+    const lock = `${file}.lock`;
+    mkdirSync(lock);
+
+    // Age it well past the reclaim threshold (wait budget + 30s grace).
+    const ancient = new Date(Date.now() - 10 * 60 * 1000);
+    utimesSync(lock, ancient, ancient);
+
+    const res = await runCli(["categories", "--json"], { dbPath: file }, { DEP_REC_BUSY_TIMEOUT_MS: "500" });
+    assert.equal(res.code, 0, `a stale lock must be reclaimed:\n${res.stderr}`);
+    try {
+      rmdirSync(lock);
+    } catch {
+      /* already reclaimed, which is the point */
+    }
   });
 
   test("several processes reading the same store concurrently all succeed", async () => {
-    const file = join(workDir, "concurrent-read.db");
-    copyFileSync(join(REPO_ROOT, "data/store.db"), file);
+    const file = join(workDir, "concurrent-read.json");
+    copyFileSync(join(REPO_ROOT, "data/store.json"), file);
 
     const runs = await Promise.all([
       runCli(["categories", "--json"], { dbPath: file }),
@@ -688,7 +768,7 @@ console.log("WAITED " + (Date.now() - t0));
 
     for (const [i, r] of runs.entries()) {
       assert.equal(r.code, 0, `process ${i} failed (${r.code}):\n${r.stderr}`);
-      assert.ok(!/database is locked/i.test(r.stderr), `process ${i}: ${r.stderr}`);
+      assert.ok(!/store is locked/i.test(r.stderr), `process ${i}: ${r.stderr}`);
     }
   });
 });

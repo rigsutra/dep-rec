@@ -14,12 +14,11 @@
 // Every phase runs against a temp copy of the store. Nothing here writes to
 // the shipped artifact.
 
-import { mkdtempSync, copyFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, copyFileSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { DatabaseSync } from "node:sqlite";
 import { allNames, TIERS } from "./corpus.js";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -29,9 +28,22 @@ const phaseArg = process.argv.find((a) => a.startsWith("--phase="))?.split("=")[
 const wanted = (p: string) => !phaseArg || phaseArg.includes(p);
 
 function freshStore(label: string): string {
-  const p = join(workDir, `${label}.db`);
-  copyFileSync(join(ROOT, "data/store.db"), p);
+  const p = join(workDir, `${label}.json`);
+  copyFileSync(join(ROOT, "data/store.json"), p);
   return p;
+}
+
+interface StoreFile {
+  formatVersion: number;
+  packages: Array<Record<string, unknown>>;
+}
+
+function readStoreFile(p: string): StoreFile {
+  return JSON.parse(readFileSync(p, "utf8")) as StoreFile;
+}
+
+function writeStoreFile(p: string, doc: StoreFile): void {
+  writeFileSync(p, JSON.stringify(doc));
 }
 
 function pct(n: number, d: number): string {
@@ -225,9 +237,9 @@ function runCliProc(
 async function phaseB() {
   console.log("\nPHASE B — concurrency ramp on one shared store (all rows forced stale, so every process WRITES)");
   const dbPath = freshStore("load");
-  const db = new DatabaseSync(dbPath);
-  db.exec("UPDATE packages SET raw_fetched_at = '2020-01-01T00:00:00.000Z'");
-  db.close();
+  const stale = readStoreFile(dbPath);
+  for (const row of stale.packages) row.raw_fetched_at = "2020-01-01T00:00:00.000Z";
+  writeStoreFile(dbPath, stale);
 
   const pool = ["axios", "got", "ky", "undici", "zod", "yup", "joi", "pino", "winston", "dayjs",
     "date-fns", "csv-parse", "redux", "zustand", "jose", "lodash", "vite", "esbuild",
@@ -240,7 +252,7 @@ async function phaseB() {
       Array.from({ length: n }, (_, i) => runCliProc(dbPath, ["check", pool[i % pool.length], "--json"]))
     );
     const failed = runs.filter((r) => r.code !== 0);
-    const locked = runs.filter((r) => /database is locked/i.test(r.stderr));
+    const locked = runs.filter((r) => /store is locked/i.test(r.stderr));
     const lat = runs.map((r) => r.ms).sort((a, b) => a - b);
     console.log(
       `  ${String(n).padStart(5)}  ${String(runs.length - failed.length).padStart(3)}  ${String(failed.length).padStart(6)}` +
@@ -282,27 +294,21 @@ const POISON: Array<[string, Record<string, unknown>]> = [
 async function phaseC() {
   console.log("\nPHASE C — poisoned store rows (every read path must survive and never emit a non-finite score)");
   const dbPath = freshStore("poison");
-  const db = new DatabaseSync(dbPath);
-
-  const cols = (db.prepare("PRAGMA table_info(packages)").all() as Array<{ name: string }>).map((c) => c.name);
-  const template = db.prepare("SELECT * FROM packages WHERE name = 'zod'").get() as Record<string, unknown>;
+  const doc = readStoreFile(dbPath);
+  const template = doc.packages.find((r) => r.name === "zod") ?? {};
 
   let injected = 0;
   for (const [label, overrides] of POISON) {
-    const row: Record<string, unknown> = { ...template, name: `poison-${label}`, categories: '["testing"]', ...overrides };
-    // NaN cannot round-trip through SQLite bindings; store it as the text the
-    // column would end up holding if something upstream wrote it.
+    const row: Record<string, unknown> = { ...template, name: `poison-${label}`, categories: ["testing"], ...overrides };
+    // NaN has no JSON representation — JSON.stringify turns it into null,
+    // which is a different (and milder) kind of bad value. Writing the string
+    // is what a store actually ends up holding when something upstream
+    // serialises a NaN, so that is what gets injected.
     for (const k of Object.keys(row)) if (typeof row[k] === "number" && Number.isNaN(row[k] as number)) row[k] = "NaN";
-    try {
-      db.prepare(`INSERT OR REPLACE INTO packages (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`).run(
-        ...cols.map((c) => (row[c] === undefined ? null : (row[c] as any)))
-      );
-      injected++;
-    } catch (err) {
-      console.log(`    (could not inject ${label}: ${err instanceof Error ? err.message : String(err)})`);
-    }
+    doc.packages.push(row);
+    injected++;
   }
-  db.close();
+  writeStoreFile(dbPath, doc);
   console.log(`  injected ${injected}/${POISON.length} poisoned rows`);
 
   const checks: Array<[string, string[]]> = [

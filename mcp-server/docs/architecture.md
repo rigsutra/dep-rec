@@ -5,10 +5,10 @@ package is and how to use it, see the [README](../README.md).
 
 ## The persistent store (`src/store/`)
 
-Originally this server just read a static JSON snapshot. It's now backed
-by a real store (SQLite, via Node's built-in `node:sqlite` — no native
-dependency to compile) that holds **both** the raw registry/downloads/OSV
-data and the computed scores, so:
+Originally this server just read a static JSON snapshot. It's now backed by a
+read-write store — one JSON document, replaced atomically, with a lock
+directory beside it for cross-process exclusion — holding **both** the raw
+registry/downloads/OSV data and the computed scores, so:
 
 - if 100 people ask about the same package, only the first one triggers a
   live fetch — the other 99 are served straight from disk;
@@ -21,13 +21,15 @@ data and the computed scores, so:
 
 ```
 src/store/
-  schema.ts           column set as data — drives both CREATE TABLE and the
-                      additive ALTER TABLE migration for older stores
-  db.ts               raw SQLite access (get/list/upsert), busy_timeout,
-                      WAL, transactions
+  schema.ts           the field set as data; normalises records read from
+                      disk and drops anything not declared there
+  db.ts               store access (get/list/upsert), the cross-process
+                      lock, atomic replace, transactions
   scoring.ts          the ONE scoring implementation, two modes:
                       category-relative (percentile vs. real peers) and
                       absolute (fixed curves, for uncategorized lookups)
+  version-safety.ts   the 30-day cooldown: which version to install, and
+                      re-deciding it against today's date on every read
   lookup.ts           getOrFetchPackage() — the cache-or-fetch logic
                       itself, and rescoreCategory()
   seed.ts             dev-time bootstrap from stage1-collector's raw output
@@ -62,7 +64,7 @@ triggers an on-demand refresh anyway, so this job is about keeping the
 npm run seed-db   # imports stage1-collector/data/packages.json, then scores every category
 ```
 
-`data/store.db` is the artifact that actually ships inside the package —
+`data/store.json` is the artifact that actually ships inside the package —
 regenerate it with `seed-db` (for the curated baseline) whenever
 `stage1-collector`'s output changes, not by hand-editing the database.
 

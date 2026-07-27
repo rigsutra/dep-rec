@@ -299,6 +299,63 @@ Also added: nothing above the current `dist-tags.latest` is eligible. A
 maintainer who rolls `latest` back to a supported line has made a deliberate
 decision about what to install, and overriding it is not this tool's call.
 
+### The window has to mean "30 days before today"
+
+Fixing the above left one thing still wrong, and it was the more interesting
+one. The cooldown was resolved once, **rendered to prose**, and stored. A row
+written while `gaxios@7.3.0` was three days old kept saying *"only 3 day(s)
+old"* and kept recommending `7.1.5` — indefinitely, because the curated
+`recommend` path reads the store with no freshness check. Storing a sentence
+freezes the clock inside it, and every held-back package eventually reaches
+the point where the release it was avoiding has aged past the window on its
+own.
+
+So the *decision* is stored, not the sentence: which version, on what basis
+(`clean`, `unverified`, `latest-fixes`, …), and the release dates of every
+candidate that could overtake it. Prose is composed on every read from that
+plus the current date, by the same function used at write time. The stored
+answer now walks forward on its own — `7.1.5 → 7.1.6 → 7.2.0 → 7.3.0` as each
+release ages in, converging on latest once latest itself clears 30 days — with
+day counts that are always current.
+
+One honesty problem falls out of this. When a version overtakes the stored
+pick purely by getting older, the OSV lookup that justified the original
+answer was never run against it. Reusing *"OSV confirms no known
+vulnerabilities affect 7.1.5"* for `7.1.6` would be a fabricated verification,
+so that case gets its own basis and says plainly that the version cleared the
+window after the data was collected and was not checked at the time.
+
+### Replacing SQLite (v0.6.0)
+
+`node:sqlite` bought genuine concurrent-write safety and cost three things: a
+hard floor of **Node 22.5** — and `engines` said `>=22.0.0`, so 22.0 through
+22.4 installed the package and crashed on first use — an
+`ExperimentalWarning: SQLite is an experimental feature` on stderr for every
+invocation, and a schema/migration module to keep older stores openable.
+
+For ~500 rows of a few hundred bytes, where several operations already load
+the entire set and no query is more complex than a filter, that was not a
+trade worth making. The store is now one JSON document: a `Map` in memory, an
+atomic write-then-rename to disk, and a lock directory for cross-process
+exclusion. `quiet-sqlite-warning.ts` — which overrode `process.emit` to
+suppress a warning users could do nothing about — is deleted outright, and the
+floor drops to Node 18.3 (`util.parseArgs`, the newest API still in use; the
+new floor was checked against that rather than guessed, and a test pins it).
+
+What had to be re-earned was the concurrency guarantee, since two `dep-rec`
+processes or an MCP client firing parallel tool calls genuinely do collide.
+Every mutation re-reads the file under the lock before applying, so a write
+never lands on a stale copy. Verified rather than assumed: the stress
+harness's concurrency ramp reports **32 concurrent writing processes, zero
+failures, zero lock errors**, and the review suite's contention tests now hold
+the real lock directory rather than a SQLite transaction — if the locking
+scheme changes, they stop contending and the control case fails.
+
+The honest cost: writers serialise on one lock and each rewrite is the whole
+file, so p50 latency at 32 concurrent writers is ~11s. Reads never block. A
+stale lock from a process killed mid-write is reclaimed after the wait budget
+plus 30 seconds, which SQLite handled on its own and this has to do by hand.
+
 ### Open: `modified_at` is not "last release"
 
 Surfaced by the above, not yet fixed. Both `eligibility.ts` and the maintenance
@@ -480,9 +537,9 @@ npm run test:gaps    # what the spec claimed but was never built
 npm run test:review  # regressions for every externally-reported finding
 ```
 
-437 adversarial scenarios across >1000 packages, using `node:test` only (no
+447 adversarial scenarios across >1000 packages, using `node:test` only (no
 framework dependency). Every suite runs against a temp copy of the store, so
-tests can never corrupt the shipped `data/store.db`.
+tests can never corrupt the shipped `data/store.json`.
 
 Writing it found **eight real bugs**, all now fixed — including `NaN` scores
 from unparseable registry timestamps, identical packages scoring 0/50/100
