@@ -361,11 +361,18 @@ async function discoverForNeed(input: RecommendInput, limit: number): Promise<Re
     recommendations: ranked,
     caveats,
     excludedAsUnrecommendable,
+    // Both branches name npm search. Provenance is not a detail that stops
+    // mattering when the answer is empty — "12 candidates were found" invites
+    // the reader to assume the curated store was searched, when in fact this
+    // was a live lookup. It also made the empty branch untestable: whether any
+    // candidate clears the gate depends on live download and maintenance
+    // stats, so a test asserting provenance failed intermittently in CI
+    // against a note that was only sometimes emitted.
     note:
       ranked.length > 0
         ? `${rows.length} candidates were discovered via npm search, fetched, scored and filtered down to ` +
           `${ranked.length}. They are now tracked in the store, so the same question is served from disk next time.`
-        : `${rows.length} candidates were found and scored, but ` +
+        : `${rows.length} candidates were discovered via npm search, fetched and scored, but ` +
           `none cleared the recommendation bar (adoption, maintenance, deprecation) — which is itself a signal ` +
           `worth reporting rather than lowering the bar to fill the list.`,
   };
