@@ -37,8 +37,11 @@
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && tsc",
     "prepack": "npm run build",
-    "test": "node --import tsx --test tests/*.test.ts",
-    "test:unit": "node --import tsx --test tests/unit-*.test.ts",
+    "test": "node scripts/run-tests.mjs",
+    "test:node18": "node scripts/assert-runtime.mjs 18 && npm test",
+    "test:node22": "node scripts/assert-runtime.mjs 22 && npm test",
+    "test:floor": "npm run build && node scripts/floor-check.mjs",
+    "test:unit": "node scripts/run-tests.mjs unit-",
     "test:corpus": "node --import tsx --test tests/corpus.test.ts",
     "test:cli": "node --import tsx --test tests/cli.test.ts",
     "test:mcp": "node --import tsx --test tests/mcp.test.ts",
@@ -50,9 +53,9 @@
     "stress": "node --import tsx stress/run.ts"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.0",
+    "@types/node": "^18.19.130",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3",
-    "@types/node": "^22.10.7",
-    "@modelcontextprotocol/sdk": "^1.10.0"
+    "typescript": "^5.7.3"
   }
 }

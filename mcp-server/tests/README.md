@@ -17,6 +17,42 @@ npm run test:review  # every externally-reported finding, as a regression
 No test framework dependency — `node:test` and `node:assert` only, matching
 the project's stance on dependencies elsewhere.
 
+## Runtime matrix
+
+`engines` claims `>=18.3.0`, so that claim gets tested rather than assumed.
+
+```bash
+npm run test:node18  # full suite, refuses to run unless the runtime is Node 18
+npm run test:node22  # full suite, refuses to run unless the runtime is Node 22
+npm run test:floor   # build, then exercise dist/ against the declared floor
+```
+
+The two suite scripts run identical tests; the only difference is the
+interpreter, so each asserts its own Node major up front. Without that guard
+they would pass on whatever `node` is first on PATH and report a
+compatibility result for a runtime nobody exercised.
+
+`test:floor` exists because the suite structurally cannot reach 18.3.0: the
+tests import `../src/*.ts`, so they need tsx via `--import` (added in 18.19)
+and `describe`/`it` (added in 18.6). Both are newer than the floor. So the
+floor is checked against the built `dist/` instead — which is also what
+consumers actually install. Run it with an 18.3.x interpreter for a real
+verdict; on anything newer it downgrades itself to "smoke test only" rather
+than imply it proved something it did not.
+
+The compile-time half is `@types/node`, pinned to the major matching the
+floor. With v22 types installed, `tsc` accepted `import { DatabaseSync } from
+"node:sqlite"` — an API needing Node 22.5 — without complaint. That is the
+exact bug this package already shipped once (see the header of
+`src/store/db.ts`). `.github/workflows/test.yml` runs all three.
+
+Test discovery goes through `scripts/run-tests.mjs` rather than a shell glob.
+`node --test tests/*.test.ts` looks portable but depends on *either* a POSIX
+shell *or* Node 22's built-in glob support: npm runs scripts through cmd.exe
+on Windows, which does not expand globs, so on Windows + Node 18 the old
+command died with `Could not find 'tests\*.test.ts'` before running a single
+test — on the very configuration `engines` promises to support.
+
 ## Safety
 
 Every suite that touches the store copies `data/store.json` to a temp

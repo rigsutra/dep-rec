@@ -1,0 +1,63 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+defaults:
+  run:
+    working-directory: mcp-server
+
+jobs:
+  # The full suite, on every Node the package claims to support. 18.20.8 is
+  # the oldest release that can run it at all: the tests import ../src/*.ts
+  # via tsx `--import`, a flag added in 18.19.
+  suite:
+    name: suite / node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['18.20.8', '20.x', '22.x']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+  # The declared engines floor, which the suite above structurally cannot
+  # reach. Build on a modern Node — tsc and tsx both need newer than 18.3 —
+  # then run the emitted dist/ on the floor itself, because dist/ is what
+  # consumers install.
+  floor:
+    name: engines floor / node 18.3.0
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18.3.0'
+      - run: node scripts/floor-check.mjs
+
+  # Compile-time half of the same guarantee: @types/node is pinned to the
+  # major matching the floor so tsc rejects any API newer than it. This
+  # package already shipped an engines floor it could not honour once.
+  types:
+    name: typecheck against floor types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+      - run: npm ci
+      - run: npx tsc --noEmit
