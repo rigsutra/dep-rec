@@ -16,14 +16,17 @@ import { resolveRecommendedVersion } from "./version-safety.js";
 // everyone else in that window gets served from storage with zero network
 // calls.
 const STALE_MS = 24 * 60 * 60 * 1000;
+// A row whose last refresh could not verify security or downloads is only
+// trusted this long, so one OSV or downloads blip is not pinned for a day.
+const FAILED_CHECK_STALE_MS = 10 * 60 * 1000;
 
 export function rescoreCategory(category: string): void {
-  const peers = listByCategory(category);
-  const scores = scoreCategoryGroup(peers);
   // One transaction rather than one write lock per peer — a category can be
   // 50+ rows, and holding the lock once is both faster and far less likely
-  // to collide with a concurrent process.
+  // to collide with a concurrent process. Peers are read inside it so the
+  // scores reflect what another process may have written in the meantime.
   withTransaction(() => {
+    const scores = scoreCategoryGroup(listByCategory(category));
     for (const [name, score] of scores) {
       upsertScore(name, { ...score, method: "category-relative" });
     }
@@ -73,7 +76,6 @@ async function fetchAndStore(
   const nowIso = new Date().toISOString();
   upsertRaw({
     name,
-    categories: existing?.categories ?? [],
     license: doc.license,
     maintainers: doc.maintainersCount,
     created_at: doc.createdAt,
@@ -118,7 +120,8 @@ export interface LookupResult {
 
 export async function getOrFetchPackage(name: string): Promise<LookupResult> {
   const existing = getPackage(name);
-  const isFresh = existing && Date.now() - new Date(existing.raw_fetched_at).getTime() < STALE_MS;
+  const ttl = existing?.security_check_failed || existing?.downloads_check_failed ? FAILED_CHECK_STALE_MS : STALE_MS;
+  const isFresh = existing && Date.now() - new Date(existing.raw_fetched_at).getTime() < ttl;
 
   if (existing && isFresh) {
     return { found: true, row: existing, servedFrom: "cache" };

@@ -23,11 +23,17 @@ async function main() {
   let refreshed = 0;
   let failed = 0;
   for (const row of batch) {
-    const ageHours = Math.round((Date.now() - new Date(row.raw_fetched_at).getTime()) / 3_600_000);
+    const fetchedAt = new Date(row.raw_fetched_at).getTime();
+    const age = Number.isFinite(fetchedAt) ? `${Math.round((Date.now() - fetchedAt) / 3_600_000)}h` : "never fetched";
     try {
-      await forceRefreshPackage(row.name);
-      refreshed++;
-      console.log(`  refreshed ${row.name} (was ${ageHours}h stale)`);
+      const result = await forceRefreshPackage(row.name);
+      if (result.found) {
+        refreshed++;
+        console.log(`  refreshed ${row.name} (was ${age} stale)`);
+      } else {
+        failed++;
+        console.log(`  FAILED to refresh ${row.name}: ${result.reason}`);
+      }
     } catch (err) {
       failed++;
       console.log(`  FAILED to refresh ${row.name}: ${(err as Error).message}`);
@@ -35,7 +41,7 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, PACING_MS));
   }
 
-  console.log(`\nDone. Refreshed ${refreshed}, failed ${failed}, ${total - batch.length} not due yet this run.`);
+  console.log(`\nDone. Refreshed ${refreshed}, failed ${failed}, ${total - batch.length} left for later runs.`);
 }
 
 main().catch((err) => {

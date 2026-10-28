@@ -18,7 +18,7 @@ writes to the shipped artifact.
 | phase | what it does |
 |---|---|
 | **A** breadth | ~270 live npm lookups across 8 quality tiers (`corpus.ts`) — mainstream, deprecated, squat-shaped, obscure-but-real, synthetic-nonexistent, malformed, hostile, homoglyph. Checks honesty, not availability: every resolved package must carry a finite in-range score and at least one reason; every miss must carry a `reasonCode`; only a real 404 may carry the hallucination warning; nothing flagged as a typosquat may also be recommendable. |
-| **B** load | Concurrency ramp (1 → 32 processes) against one shared store with every row forced stale, so all of them write. Reports failures and `database is locked` occurrences separately from latency. |
+| **B** load | Concurrency ramp (1 → 32 processes) against one shared store with every row forced stale, so all of them write. Reports failures and `store is locked` occurrences separately from latency. |
 | **C** corrupt | 22 deliberately poisoned rows — `NaN`, negative counts, unparseable JSON, 1970/2999 dates, 100k-character names, out-of-range scores, a 5000-entry reasons array. Every read path must survive, and the output must stay parseable with no non-finite score. |
 | **D** judgement | Runs the ten known needs and reports whether the score actually separates good packages from bad. Fails if mainstream packages do not outscore deprecated ones, if a top pick is unexplained, or if the eligibility bar rejects more than 20% of mainstream packages. |
 
@@ -36,5 +36,5 @@ they are honest limitations rather than defects:
   anchor a ratio), but the *rate* matters, so it is measured and violates
   above 10%.
 
-Findings from this harness are written up in the main
-[README](../README.md#stress-testing-npm-run-stress).
+Findings from this harness are written up in
+[docs/reviews-and-hardening.md](../docs/reviews-and-hardening.md).

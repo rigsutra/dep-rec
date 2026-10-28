@@ -6,17 +6,18 @@
 
 import { test, describe, before } from "node:test";
 import assert from "node:assert/strict";
-import { copyFileSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runCli, REPO_ROOT, INVALID_NAMES, HOSTILE_NAMES } from "./helpers.js";
+import { runCli, copyFreshStore, REPO_ROOT, INVALID_NAMES, HOSTILE_NAMES } from "./helpers.js";
 
 let dbPath: string;
 
 before(() => {
   const dir = mkdtempSync(join(tmpdir(), "dep-rec-cli-"));
   dbPath = join(dir, "store.json");
-  copyFileSync(join(REPO_ROOT, "data/store.json"), dbPath);
+  copyFreshStore(dbPath);
 });
 
 describe("CLI — help and dispatch", () => {
@@ -367,5 +368,65 @@ describe("CLI — hostile input must not crash, lie, or escape", () => {
     });
     assert.notEqual(r.code, 0, "an unusable database must be an error, not an empty success");
     assert.ok(r.stderr.length > 0);
+  });
+
+  test("with no --db, lookups write a per-user store and never the shipped one", async () => {
+    const home = mkdtempSync(join(tmpdir(), "dep-rec-home-"));
+    const shipped = join(REPO_ROOT, "data/store.json");
+    const before = statSync(shipped).mtimeMs;
+
+    const cats = await runCli(["categories", "--json"], {}, { HOME: home, USERPROFILE: home });
+    assert.equal(cats.code, 0, cats.stderr);
+    assert.equal(cats.json.length, 10, "a missing per-user store must read as the shipped corpus");
+
+    const r = await runCli(["check", "zod", "--json"], { timeoutMs: 60_000 }, { HOME: home, USERPROFILE: home });
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(existsSync(join(home, ".dep-rec", "store.json")), "the first write must create ~/.dep-rec/store.json");
+    assert.equal(statSync(shipped).mtimeMs, before, "the shipped store must not be written");
+  });
+});
+
+// Real npm, real registry and OSV: minimist 1.2.5 carries GHSA-xvch-5gv4-984h,
+// fixed in 1.2.6 (2022), so the fix is long past the cooldown.
+describe("CLI — fix", () => {
+  function vulnerableProject(testScript?: string): string {
+    const dir = mkdtempSync(join(tmpdir(), "dep-rec-fixcli-"));
+    const pkg: Record<string, unknown> = { name: "fixture", version: "1.0.0", private: true };
+    if (testScript) pkg.scripts = { test: testScript };
+    writeFileSync(join(dir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
+    const win = process.platform === "win32";
+    const r = spawnSync(win ? "npm.cmd" : "npm", ["install", "minimist@1.2.5", "--save-exact", "--no-audit", "--no-fund"], { cwd: dir, shell: win });
+    assert.equal(r.status, 0, String(r.stderr));
+    return dir;
+  }
+
+  test("dry run plans the fix, changes nothing, and exits 2", async () => {
+    const dir = vulnerableProject();
+    const before = readFileSync(join(dir, "package.json"), "utf8");
+    const r = await runCli(["fix", "--dir", dir, "--json"], { timeoutMs: 60_000 });
+    assert.equal(r.code, 2, r.stderr);
+    assert.equal(r.json.fixes[0].name, "minimist");
+    assert.equal(r.json.fixes[0].strategy, "bump");
+    assert.equal(r.json.applied, null);
+    assert.equal(readFileSync(join(dir, "package.json"), "utf8"), before);
+  });
+
+  test("--apply bumps the pin and the lockfile follows", async () => {
+    const dir = vulnerableProject();
+    const r = await runCli(["fix", "--dir", dir, "--apply", "--json"], { timeoutMs: 120_000 });
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(r.json.applied.notFixed, []);
+    assert.equal(JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).dependencies.minimist, r.json.fixes[0].to);
+    assert.equal(JSON.parse(readFileSync(join(dir, "package-lock.json"), "utf8")).packages["node_modules/minimist"].version, r.json.fixes[0].to);
+  });
+
+  test("--apply restores everything when the project's tests fail", async () => {
+    const dir = vulnerableProject("exit 1");
+    const before = readFileSync(join(dir, "package.json"), "utf8");
+    const r = await runCli(["fix", "--dir", dir, "--apply", "--json"], { timeoutMs: 120_000 });
+    assert.equal(r.code, 1);
+    assert.equal(r.json.applied.rolledBack, true);
+    assert.equal(readFileSync(join(dir, "package.json"), "utf8"), before);
+    assert.equal(JSON.parse(readFileSync(join(dir, "package-lock.json"), "utf8")).packages["node_modules/minimist"].version, "1.2.5");
   });
 });

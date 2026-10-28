@@ -304,6 +304,18 @@ async function discoverForNeed(input: RecommendInput, limit: number): Promise<Re
       `verify, not a settled comparison, and confirm each one actually does what you need.`,
   ];
 
+  if (hits === null) {
+    return {
+      matchedCategory: null,
+      discoveredVia: "npm-search",
+      recommendations: [],
+      caveats,
+      note:
+        `The npm search for "${input.need}" failed (registry unreachable or throttled), so nothing was checked. ` +
+        `Retry shortly; if you already have a candidate name, check_package scores any package on npm.`,
+    };
+  }
+
   if (hits.length === 0) {
     return {
       matchedCategory: null,

@@ -3,9 +3,7 @@
 // and Tier 2 (static analysis: ESM/TS support, release cadence, deprecation)
 // data attached to each one.
 //
-// Deliberately no Tier 3 (sandbox-tested edge compatibility) here yet — that's
-// the Proof 0 script (../proof0), which gets pointed at this dataset separately
-// once Proof 1 is confirmed to produce good data.
+// Deliberately no Tier 3 (sandbox-tested edge compatibility) here.
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { fetchPackageDoc, fetchWeeklyDownloadsBatch, searchNpm, type RegistryDoc } from "./npm.js";

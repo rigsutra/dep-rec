@@ -12,11 +12,10 @@ npm run build
 npm link
 ```
 
-`dep-rec` is then on your PATH from any directory. **One trap worth knowing
-about:** a linked install points at this repo's own `data/store.json`, so
-every lookup writes into the artifact that ships inside the package —
-`dep-rec check chalk` from a scratch directory added `chalk` to it as row
-500 the first time this was tried. Use a scratch store while developing:
+`dep-rec` is then on your PATH from any directory. Lookups write to the
+per-user store `~/.dep-rec/store.json`, never to the repo's `data/store.json`
+(before 0.7.0 they did, which is how `chalk` once became row 500 of the
+shipped corpus). To keep your own store clean too, use a scratch one:
 
 ```bash
 cp data/store.json /tmp/mystore.json
@@ -31,8 +30,9 @@ removes the link.
 
 The store is a single JSON document, replaced atomically on every write
 (temp file, then rename), with a lock directory next to it for cross-process
-exclusion. `data/store.json` is both the corpus that ships and the cache
-that gets written to.
+exclusion. `data/store.json` is the corpus that ships; each user's cache is
+`~/.dep-rec/store.json`, which reads as the shipped corpus until its first
+write creates it.
 
 It was SQLite via `node:sqlite` until 0.6.0. That bought real concurrent
 write safety and cost three things: a hard floor of Node 22.5, an
@@ -78,7 +78,7 @@ would be.
 
 ```bash
 npm run build        # tsc -> dist/, shebang preserved on dist/server.js
-npm pack              # produces dep-rec-0.3.0.tgz — exactly what
+npm pack              # produces dep-rec-<version>.tgz — exactly what
                       # `npm publish` would upload, done locally
 ```
 

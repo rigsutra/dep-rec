@@ -117,8 +117,9 @@ visible rather than silent.
 ## A real gotcha this caught: spawned-process environment
 
 `check_package` makes outbound HTTPS calls (npm registry, OSV) at request
-time — unlike `recommend_package`/`list_categories`, which only read the
-bundled local file. The MCP SDK's *default* environment for a spawned
+time, and so does `recommend_package` when a need falls outside the curated
+categories and is answered by live npm search. Only `list_categories` reads
+the bundled local file alone. The MCP SDK's *default* environment for a spawned
 server process on Windows is a short allowlist (`APPDATA`, `PATH`,
 `SYSTEMROOT`, a handful of others) — it does **not** pass through
 whatever a given machine's network layer needs for outbound HTTPS to

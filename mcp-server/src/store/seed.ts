@@ -10,6 +10,12 @@ import { rescoreCategory } from "./lookup.js";
 import { fetchPackageDoc } from "../sources/npm.js";
 import { queryVulnerabilities } from "../sources/osv.js";
 import { resolveRecommendedVersion, COOLDOWN_DAYS } from "./version-safety.js";
+import { fileURLToPath } from "node:url";
+
+// The default store is now per-user, so seeding must name the shipped file.
+// The store resolves its path lazily, so setting this before the first store
+// call is enough.
+process.env.DEP_REC_DB_PATH ??= fileURLToPath(new URL("../../data/store.json", import.meta.url));
 
 interface CollectorRecord {
   name: string;

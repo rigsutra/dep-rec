@@ -7,10 +7,10 @@
 
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { copyFileSync, mkdtempSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openMcp, REPO_ROOT, INVALID_NAMES, HOSTILE_NAMES, type McpSession } from "./helpers.js";
+import { openMcp, copyFreshStore, INVALID_NAMES, HOSTILE_NAMES, type McpSession } from "./helpers.js";
 
 let mcp: McpSession;
 let dbPath: string;
@@ -18,7 +18,7 @@ let dbPath: string;
 before(async () => {
   const dir = mkdtempSync(join(tmpdir(), "dep-rec-mcp-"));
   dbPath = join(dir, "store.json");
-  copyFileSync(join(REPO_ROOT, "data/store.json"), dbPath);
+  copyFreshStore(dbPath);
   mcp = await openMcp({ dbPath });
 });
 

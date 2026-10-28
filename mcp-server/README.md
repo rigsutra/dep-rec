@@ -200,6 +200,7 @@ accusation:
 dep-rec check <package-name> [--json] [--db <path>]
 dep-rec recommend "<need>" [--runtime node|edge] [--license MIT] [--limit 1-20] [--json] [--db <path>]
 dep-rec categories [--json] [--db <path>]
+dep-rec fix [--apply] [--no-test] [--dir <path>] [--json]
 ```
 
 | Flag | Effect |
@@ -208,10 +209,37 @@ dep-rec categories [--json] [--db <path>]
 | `--limit <1-20>` | How many candidates to return (default 5) |
 | `--runtime node\|edge` | Target runtime; `edge` attaches an explicit not-sandbox-tested caveat |
 | `--license <id>` | Exact license match, e.g. `MIT` |
-| `--db <path>` | Use a different store file (also `DEP_REC_DB_PATH`) |
+| `--db <path>` | Use a different store file than the default `~/.dep-rec/store.json` (also `DEP_REC_DB_PATH`) |
 
 `check` exits non-zero when a package can't be resolved, so a hallucinated
 name in a PR fails the build.
+
+## Fix vulnerable dependencies
+
+```
+dep-rec fix [--apply] [--no-test] [--dir <path>] [--json]
+```
+
+Scans `package-lock.json` (v2/v3, direct and transitive packages) against
+OSV and plans the smallest upgrade that fixes each vulnerable package
+without a major version change. It differs from `npm audit fix` in two ways:
+
+- **Cooldown.** Every target, and everything npm resolves along the way
+  (`--before`), is at least 30 days old. A fix published yesterday is reported,
+  not installed, because a fresh release is exactly how a hijacked version
+  spreads.
+- **Pinned transitive packages.** When a parent pins a vulnerable child outside
+  the fixed range, it writes a same-major `overrides` entry instead of giving
+  up.
+
+Dry run by default. `--apply` backs up `package.json` and the lockfile, makes
+the change, confirms the vulnerable versions are gone and nothing new and
+vulnerable came in, runs `npm test` (skip with `--no-test`), and restores both
+files if any step fails. Major-only fixes, fixes still inside the cooldown,
+and conflicts are listed with the reason.
+
+Exit codes: `0` nothing left to fix, `2` vulnerabilities remain, `1` error or
+rollback.
 
 ## How it scores
 

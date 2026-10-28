@@ -17,6 +17,8 @@ const UA = "dep-rec-mcp-server/0.2 (live package check)";
 // live path never inherited it.
 const MAX_ATTEMPTS = 4;
 const BASE_BACKOFF_MS = 400;
+// Per attempt. Without it one hung socket blocks the caller forever.
+export const FETCH_TIMEOUT_MS = 15_000;
 
 // Retrying alone did not fix it: the failures came in one contiguous block
 // spanning unrelated packages, which is the signature of a sustained
@@ -80,9 +82,9 @@ async function fetchWithRetry(url: string, init: RequestInit, onThrottle?: () =>
     }
     let res: Response;
     try {
-      res = await fetch(url, init);
+      res = await fetch(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     } catch {
-      continue; // transient network failure: retry
+      continue; // transient network failure or timeout: retry
     }
     if (!retryable(res.status)) return res;
     if (res.status === 429) onThrottle?.();
@@ -111,11 +113,14 @@ export interface SearchHit {
  * Weighted towards popularity and quality over pure text relevance, matching
  * the collector, because the goal is "packages people actually use for this"
  * rather than "packages whose README mentions this most often".
+ *
+ * Returns null when the search itself failed, so callers can tell an outage
+ * from a query that genuinely matched nothing.
  */
-export async function searchPackages(query: string, size = 20): Promise<SearchHit[]> {
+export async function searchPackages(query: string, size = 20): Promise<SearchHit[] | null> {
   const url = `${REGISTRY}/-/v1/search?text=${encodeURIComponent(query)}&size=${size}&popularity=1.0&quality=0.4&maintenance=0.2`;
   const res = await fetchWithRetry(url, { headers: { "User-Agent": UA, Accept: "application/json" } });
-  if (res === null || !res.ok) return [];
+  if (res === null || !res.ok) return null;
   try {
     const data = (await res.json()) as {
       objects?: Array<{ package?: { name?: string; description?: string }; score?: { final?: number } }>;
@@ -130,7 +135,7 @@ export async function searchPackages(query: string, size = 20): Promise<SearchHi
       // recommended for a functional need.
       .filter((h) => h.name.length > 0 && !h.name.startsWith("@types/"));
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -337,10 +342,8 @@ export async function fetchWeeklyDownloads(name: string): Promise<number | null>
   // directly in the path, unlike the bulk comma-separated endpoint
   const res = await paced(() => fetchWithRetry(`${DOWNLOADS}/${name}`, { headers: { "User-Agent": UA } }, noteThrottled));
   if (res === null) return null;
-  if (res.status === 429) {
-    noteThrottled();
-    return null;
-  }
+  // fetchWithRetry already reported this throttle via noteThrottled.
+  if (res.status === 429) return null;
   if (res.ok) noteSucceeded();
   // 404 from this endpoint is the one honest zero: the package exists but has
   // no downloads recorded for the period. Every other non-2xx is a failure to

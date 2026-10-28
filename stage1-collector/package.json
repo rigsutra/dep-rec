@@ -5,8 +5,7 @@
   "type": "module",
   "description": "Proof 1 - collect Tier 1 + Tier 2 data for ~500 packages across 10 competing categories.",
   "scripts": {
-    "collect": "tsx src/collect.ts",
-    "score": "tsx src/score.ts"
+    "collect": "tsx src/collect.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

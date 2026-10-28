@@ -48,7 +48,7 @@ describe("Edge runtime compatibility (Proof 0 exists but was never merged into s
     const caveatText = r.json.caveats.join(" ");
     assert.ok(r.json.caveats.length > 0, "asking for edge support must not silently answer as if it were checked");
     assert.match(caveatText, /NOT been sandbox-tested|weak proxy/i, "must state the signal is a proxy, not a guarantee");
-    record("edge-runtime compatibility", false, "ESM support used as a proxy; @edge-runtime/vm check lives only in proof0/, unmerged");
+    record("edge-runtime compatibility", false, "ESM support used as a proxy; no real edge-runtime execution check");
   });
 
   test("no per-package field claims edge compatibility", async () => {

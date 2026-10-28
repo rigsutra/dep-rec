@@ -28,7 +28,7 @@ const TOOLS: ToolSpec[] = [
     description:
       "Recommend the best-fit npm package for a described need (e.g. 'JWT library', 'csv parser'), ranked by a " +
       "deterministic score — security (OSV vulnerabilities scoped to the current version), maintenance " +
-      "(release recency/cadence, maintainer count), compatibility (ESM/TypeScript support), community adoption " +
+      "(release recency/cadence), compatibility (ESM/TypeScript support), community adoption " +
       "(downloads relative to same-category competitors), and supply-chain footprint (dependency count) — " +
       "computed from real npm registry / OSV data, never guessed from training data. Only packages that clear a " +
       "recommendation bar are considered at all — deprecated, barely-adopted (<10k weekly downloads), brand-new " +

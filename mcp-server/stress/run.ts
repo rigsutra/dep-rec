@@ -440,6 +440,6 @@ main().finally(() => {
   try {
     if (process.env.DEP_REC_STRESS_KEEP !== "1") rmSync(workDir, { recursive: true, force: true });
   } catch {
-    /* windows holds sqlite handles briefly; the OS will clean temp */
+    /* windows can hold file handles briefly; the OS will clean temp */
   }
 });

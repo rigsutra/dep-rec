@@ -54,5 +54,7 @@ data."
 - GitHub-derived signals (stars, forks, bus factor) — needs an authenticated
   token to get a workable rate limit at ~500 packages.
 - deps.dev transitive-dependency graph and OpenSSF Scorecard.
-- Tier 3 (`../proof0`'s real edge-runtime execution check) — not yet run
-  against this dataset, only against 6 hand-picked test packages so far.
+- Tier 3 (real edge-runtime execution check).
+
+Scoring is not done here: `mcp-server`'s `npm run seed-db` reads
+`data/packages.json` and scores it with `mcp-server/src/store/scoring.ts`.

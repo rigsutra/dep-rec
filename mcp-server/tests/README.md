@@ -67,7 +67,7 @@ added for exactly this reason — the path used to be hardcoded.)
 | `unit-scoring.test.ts` | Score well-formedness under impossible inputs, monotonicity, determinism, tie handling, capability caveats, cooldown logic |
 | `unit-typosquat.test.ts` | Detection recall against 26 verified distance-1 squats, precision against legitimate neighbours, threshold boundaries, hostile/Unicode names |
 | `corpus.test.ts` | All 499 real store packages + 600 generated rows: store integrity, rescoring, and a full false-positive sweep of the detector |
-| `cli.test.ts` | Argument parsing, exit codes, stream discipline, `--json` parseability, locale independence, path traversal and SQL injection through argv |
+| `cli.test.ts` | Argument parsing, exit codes, stream discipline, `--json` parseability, locale independence, path traversal and injection-shaped argv |
 | `mcp.test.ts` | Protocol handshake, schema validation, tool *descriptions* as contract, concurrency, cross-process store sharing, CLI/MCP parity |
 | `adversarial-gaps.test.ts` | Concepts the spec claimed but that were never built — asserts the tool never overclaims, and prints a coverage inventory |
 | `review-findings.test.ts` | Every finding from an external review, reproduced as a regression: dependency shape, legacy-store migration, write-lock contention, typosquat floors, limit validation, lookup-miss classification, prototype-shaped argument keys, unverified-adoption handling |
