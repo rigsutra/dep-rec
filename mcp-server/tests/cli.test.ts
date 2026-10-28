@@ -430,3 +430,69 @@ describe("CLI — fix", () => {
     assert.equal(JSON.parse(readFileSync(join(dir, "package-lock.json"), "utf8")).packages["node_modules/minimist"].version, "1.2.5");
   });
 });
+
+describe("CLI — hook", () => {
+  function hook(input: unknown, store = dbPath): { code: number | null; decision: any } {
+    const r = spawnSync(process.execPath, ["--import", "tsx", join(REPO_ROOT, "src/cli.ts"), "hook"], {
+      cwd: REPO_ROOT,
+      input: typeof input === "string" ? input : JSON.stringify(input),
+      env: { ...process.env, DEP_REC_DB_PATH: store },
+      encoding: "utf8",
+      timeout: 60_000,
+    });
+    const out = r.stdout.trim();
+    return { code: r.status, decision: out ? JSON.parse(out).hookSpecificOutput : null };
+  }
+  const bash = (command: string) => ({ tool_name: "Bash", tool_input: { command } });
+
+  test("a nonexistent package is denied as a likely hallucination", () => {
+    const r = hook(bash("npm install dep-rec-hook-nope-xyz-123"));
+    assert.equal(r.code, 0);
+    assert.equal(r.decision.permissionDecision, "deny");
+    assert.match(r.decision.permissionDecisionReason, /does not exist.*hallucinated/);
+  });
+
+  test("a typosquat is flagged and names its target", async () => {
+    // The verdict needs live download counts for both names, and the detector
+    // stays silent when either is unverified. Late in a full run the
+    // downloads API rate-limits, so retry on a fresh store each time (a
+    // cached row with failed counts would just repeat the miss).
+    let r = hook(bash("npm i lodashh"));
+    for (let attempt = 0; attempt < 3 && r.decision === null; attempt++) {
+      await new Promise((res) => setTimeout(res, 5_000));
+      const store = join(mkdtempSync(join(tmpdir(), "dep-rec-hook-")), "store.json");
+      copyFreshStore(store);
+      r = hook(bash("npm i lodashh"), store);
+    }
+    assert.ok(r.decision, "no verdict after retries: npm downloads API unreachable or rate-limited");
+    // lodashh is old and inert, so no risk markers: asked, not denied.
+    assert.equal(r.decision.permissionDecision, "ask");
+    assert.match(r.decision.permissionDecisionReason, /typosquat of lodash.*established package/s);
+  });
+
+  test("a version with known vulnerabilities is denied with a safe alternative", () => {
+    const r = hook(bash("npm i minimist@1.2.5"));
+    assert.equal(r.decision.permissionDecision, "deny");
+    assert.match(r.decision.permissionDecisionReason, /GHSA-xvch-5gv4-984h.*Use minimist@\d+\.\d+\.\d+ instead/);
+  });
+
+  test("a clean, old pinned version produces no output, so normal permissions apply", () => {
+    const r = hook(bash("npm i ms@2.1.3"));
+    assert.equal(r.code, 0);
+    assert.equal(r.decision, null);
+  });
+
+  test("non-install commands, other tools and garbage input are left alone", () => {
+    for (const input of [bash("npm test"), bash("npm install"), { tool_name: "Read", tool_input: { file_path: "x" } }, "not json"]) {
+      const r = hook(input);
+      assert.equal(r.code, 0);
+      assert.equal(r.decision, null);
+    }
+  });
+
+  test("the hook never answers allow", () => {
+    const r = hook(bash("npm i ms@2.1.3 dep-rec-hook-nope-xyz-123"));
+    assert.equal(r.decision.permissionDecision, "deny");
+    assert.notEqual(r.decision.permissionDecision, "allow");
+  });
+});

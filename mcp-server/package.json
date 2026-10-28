@@ -5,7 +5,7 @@
   "type": "module",
   "license": "MIT",
   "author": "Ashish Singh",
-  "description": "Recommend the best-fit npm package for a described need, or check any arbitrary package's health/security live — as a CLI or an MCP server for AI assistants.",
+  "description": "Stop AI agents installing hallucinated, typosquatted, brand-new or vulnerable npm packages: a Claude Code hook, an MCP server and a CLI that checks packages live against npm and OSV, recommends the best fit for a need, and patches vulnerable dependencies without major upgrades.",
   "engines": {
     "node": ">=18.3.0"
   },
@@ -18,10 +18,22 @@
     "npm",
     "mcp",
     "model-context-protocol",
+    "claude-code",
+    "hook",
+    "ai-agent",
     "cli",
     "dependency",
-    "package-recommendation",
-    "security"
+    "dependencies",
+    "security",
+    "supply-chain",
+    "typosquatting",
+    "slopsquatting",
+    "hallucination",
+    "vulnerability",
+    "osv",
+    "audit",
+    "npm-audit-fix",
+    "package-recommendation"
   ],
   "bin": {
     "dep-rec": "dist/cli.js",

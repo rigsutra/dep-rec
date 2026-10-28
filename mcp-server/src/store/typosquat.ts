@@ -141,8 +141,17 @@ export interface TyposquatCheck {
   suspicious: boolean;
   targetPackage?: string;
   targetWeeklyDownloads?: number;
+  /** "typo": one slip away. "combo": the target plus an affix (express-js). */
+  kind?: "typo" | "combo";
   reason?: string;
 }
+
+/**
+ * Live weekly downloads for many names at once; null when the source could
+ * not answer. Supplying one lets the check find a squat of ANY package on
+ * npm, not just the ones in the store or the hand-kept list above.
+ */
+export type DownloadsProbe = (names: string[]) => Promise<Map<string, number | null> | null>;
 
 // A target has to be worth squatting before a near-miss name means
 // anything: two obscure packages one typo apart is a coincidence, not an
@@ -156,11 +165,14 @@ export interface TyposquatCheck {
 // So the floor now depends on how the target was recognised:
 //   - hand-curated above: we have already asserted this is a recognisable
 //     name an attacker would target, so a much lower floor applies;
+//   - found by the live probe: its popularity is a fresh measurement, but
+//     nobody vouched for it, so it needs more than a curated name;
 //   - merely present in our store: the store deliberately tracks obscure
 //     packages (that is what check_package is for, and some entries have
 //     double-digit download counts), so those need real popularity before
 //     they can be treated as a squat target at all.
 const MIN_TARGET_DOWNLOADS = 1_000_000;
+const MIN_PROBED_TARGET_DOWNLOADS = 100_000;
 const MIN_CURATED_TARGET_DOWNLOADS = 50_000;
 const MIN_RATIO = 100;
 
@@ -169,6 +181,15 @@ const MIN_RATIO = 100;
 // candidates produces false positives on packages that have done nothing
 // wrong. Real typosquats target recognisable, longer names.
 const MIN_CANDIDATE_LENGTH = 4;
+
+// The bulk downloads endpoint takes 128 names per request; two requests is
+// the budget for one check.
+const MAX_PROBE_NAMES = 256;
+
+// Affixes attackers bolt onto a popular name (combosquatting). Stripping one
+// from the checked name gives the package it may be impersonating.
+const COMBO_PREFIXES = ["node-", "nodejs-", "js-", "npm-"];
+const COMBO_SUFFIXES = ["-js", ".js", "js", "-node", "-nodejs", "-cli", "-utils", "-util", "-lib", "-pkg", "-npm", "-official"];
 
 // A name already in the store costs nothing to look up. Anything else needs
 // the network — and that call must never be allowed to take down the whole
@@ -185,6 +206,41 @@ async function targetDownloads(target: string, storeDownloads: Map<string, numbe
   }
 }
 
+/**
+ * The names the checked one could be a slip of, sized for the live probe.
+ * Every deletion, transposition and plausible substitution, but insertions
+ * only of the characters people actually drop: a doubled neighbour, a vowel,
+ * or a separator. All 39 characters at every position would be ~40x the
+ * requests for little gain.
+ */
+function probeVariants(name: string): string[] {
+  const out = new Set<string>();
+  const n = name.length;
+  for (let i = 0; i < n; i++) out.add(name.slice(0, i) + name.slice(i + 1));
+  for (let i = 0; i < n - 1; i++) {
+    if (name[i] !== name[i + 1]) out.add(name.slice(0, i) + name[i + 1] + name[i] + name.slice(i + 2));
+  }
+  for (let i = 0; i < n; i++) {
+    const subs = (KEYBOARD_NEIGHBOURS[name[i]] ?? "") + (CONFUSABLES[name[i]] ?? "").replace(/[^a-z0-9]/g, "");
+    for (const c of subs) out.add(name.slice(0, i) + c + name.slice(i + 1));
+  }
+  for (let i = 0; i <= n; i++) {
+    // A dropped first or last letter is common enough to try every letter.
+    const pool = i === 0 || i === n ? "abcdefghijklmnopqrstuvwxyz".split("") : [];
+    const drops = new Set([name[i - 1], name[i], "a", "e", "i", "o", "u", "-", ...pool].filter((c): c is string => Boolean(c)));
+    for (const c of drops) out.add(name.slice(0, i) + c + name.slice(i));
+  }
+  out.delete(name);
+  return [...out].filter((v) => /^[a-z0-9]/.test(v) && isTypoShapedEdit(name, v)).slice(0, MAX_PROBE_NAMES);
+}
+
+function comboTargets(name: string): string[] {
+  const out = new Set<string>();
+  for (const p of COMBO_PREFIXES) if (name.startsWith(p)) out.add(name.slice(p.length));
+  for (const s of COMBO_SUFFIXES) if (name.endsWith(s)) out.add(name.slice(0, -s.length));
+  return [...out].filter((t) => t.length >= MIN_CANDIDATE_LENGTH);
+}
+
 export async function checkTyposquat(
   name: string,
   weeklyDownloads: number,
@@ -197,7 +253,8 @@ export async function checkTyposquat(
    * `target >= subject * 100` collapse to `target >= 0` and every popular
    * neighbour becomes a "confirmed" impersonation target.
    */
-  subjectDownloadsVerified = true
+  subjectDownloadsVerified = true,
+  probe?: DownloadsProbe,
 ): Promise<TyposquatCheck> {
   if (!subjectDownloadsVerified) return { suspicious: false };
 
@@ -211,40 +268,81 @@ export async function checkTyposquat(
   const bareName = name.startsWith("@") ? name.slice(name.indexOf("/") + 1) : name;
   if (bareName.length < MIN_CANDIDATE_LENGTH) return { suspicious: false };
 
-  const variants = editDistance1Variants(name);
-  const candidateTargets = new Set<string>();
-
-  for (const v of variants) {
+  // Candidates from what is already known locally.
+  const candidates = new Map<string, "typo" | "combo">();
+  for (const v of editDistance1Variants(name)) {
     if (!storeDownloads.has(v) && !knownSet.has(v)) continue;
     // Only keep matches whose single edit actually looks like a typing slip.
     if (!isTypoShapedEdit(name, v)) continue;
-    candidateTargets.add(v);
+    candidates.set(v, "typo");
   }
-  if (candidateTargets.size === 0) return { suspicious: false };
+  const combos = name.startsWith("@") ? [] : comboTargets(name);
+  for (const c of combos) if (storeDownloads.has(c) || knownSet.has(c)) candidates.set(c, "combo");
 
-  let best: { name: string; downloads: number; floor: number } | null = null;
-  for (const target of candidateTargets) {
-    const downloads = await targetDownloads(target, storeDownloads);
+  // Candidates from npm itself: which of the plausible source names exist,
+  // and how popular they are, in one or two requests. A failed probe leaves
+  // the local candidates to stand alone.
+  let probed: Map<string, number | null> | null = null;
+  if (probe && !name.startsWith("@")) {
+    const typos = probeVariants(name);
+    probed = await probe([...typos, ...combos]).catch(() => null);
+    if (probed) {
+      for (const t of typos) if (typeof probed.get(t) === "number" && !candidates.has(t)) candidates.set(t, "typo");
+      for (const c of combos) if (typeof probed.get(c) === "number" && !candidates.has(c)) candidates.set(c, "combo");
+    }
+  }
+  if (candidates.size === 0) return { suspicious: false };
+
+  let best: { name: string; downloads: number; floor: number; kind: "typo" | "combo" } | null = null;
+  for (const [target, kind] of candidates) {
+    const live = probed?.get(target);
+    const downloads = typeof live === "number" ? live : await targetDownloads(target, storeDownloads);
     // Unknown popularity means this candidate cannot be judged. Skipping it
     // is the only safe choice: guessing high would invent an accusation,
     // and there is nothing to compare a ratio against.
     if (downloads === null) continue;
-    const floor = knownSet.has(target) ? MIN_CURATED_TARGET_DOWNLOADS : MIN_TARGET_DOWNLOADS;
+    const floor = knownSet.has(target)
+      ? MIN_CURATED_TARGET_DOWNLOADS
+      : storeDownloads.has(target)
+        ? MIN_TARGET_DOWNLOADS
+        : MIN_PROBED_TARGET_DOWNLOADS;
     // Rank by how far past its own floor a candidate is, not by raw
     // downloads — otherwise a big-but-ineligible store name can shadow a
     // curated target that actually qualifies.
-    if (!best || downloads / floor > best.downloads / best.floor) best = { name: target, downloads, floor };
+    if (!best || downloads / floor > best.downloads / best.floor) best = { name: target, downloads, floor, kind };
   }
   if (!best) return { suspicious: false };
 
   if (best.downloads >= best.floor && best.downloads >= weeklyDownloads * MIN_RATIO) {
+    const shape = best.kind === "typo" ? "one character away from" : "a popular package's name plus an affix:";
     return {
       suspicious: true,
       targetPackage: best.name,
       targetWeeklyDownloads: best.downloads,
-      reason: `Name is one character away from "${best.name}" (${best.downloads.toLocaleString("en-US")} weekly downloads vs. this package's ${weeklyDownloads.toLocaleString("en-US")}) — classic typosquat pattern. Verify this is really the package you meant before installing.`,
+      kind: best.kind,
+      reason: `Name is ${shape} "${best.name}" (${best.downloads.toLocaleString("en-US")} weekly downloads vs. this package's ${weeklyDownloads.toLocaleString("en-US")}) — classic ${best.kind === "typo" ? "typosquat" : "combosquat"} pattern. Verify this is really the package you meant before installing.`,
     };
   }
 
   return { suspicious: false };
+}
+
+/**
+ * What separates an attack from an unlucky name. A real squat is usually
+ * new, runs code on install, or has never been updated; an established
+ * package that merely resembles a bigger one has none of these.
+ */
+export function squatRiskMarkers(
+  row: { created_at: string | null; has_install_scripts: boolean; release_cadence_days: number | null },
+  now = Date.now(),
+): string[] {
+  const markers: string[] = [];
+  const created = row.created_at ? new Date(row.created_at).getTime() : NaN;
+  if (Number.isFinite(created)) {
+    const days = Math.floor((now - created) / 86_400_000);
+    if (days < 90) markers.push(`first published ${days} day(s) ago`);
+  }
+  if (row.has_install_scripts) markers.push("runs install scripts");
+  if (row.release_cadence_days === null) markers.push("only one version ever published");
+  return markers;
 }

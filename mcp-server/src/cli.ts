@@ -10,6 +10,8 @@ import { listCategories, recommend, checkPackage, MAX_LIMIT } from "./data.js";
 import { readLockfile } from "./fix/lockfile.js";
 import { planFixes, liveSources, type VulnSummary } from "./fix/plan.js";
 import { applyFixes } from "./fix/apply.js";
+import { findPackageRequests } from "./hook/command.js";
+import { evaluate } from "./hook/evaluate.js";
 
 const HELP = `dep-rec — dependency recommendation CLI
 
@@ -18,6 +20,7 @@ Usage:
   dep-rec recommend "<need>" [--runtime node|edge] [--license MIT] [--limit 1-20] [--json] [--db <path>]
   dep-rec categories [--json] [--db <path>]
   dep-rec fix [--apply] [--no-test] [--dir <path>] [--json]
+  dep-rec hook   (Claude Code PreToolUse hook; reads the tool call on stdin)
 
 fix:
   Finds vulnerable packages in package-lock.json (direct and transitive) and
@@ -212,6 +215,39 @@ async function runFix(rest: string[]): Promise<void> {
   if (remaining > 0) process.exitCode = 2;
 }
 
+// Claude Code PreToolUse hook. Reads the tool call on stdin and, for a Bash
+// command that installs or runs npm packages, denies or asks per evaluate().
+// It never answers "allow": that would skip the user's own permission rules.
+// Anything unexpected exits 0 with no output, which leaves the call alone.
+async function runHook(): Promise<void> {
+  let raw = "";
+  for await (const chunk of process.stdin) raw += chunk;
+  let input: any;
+  try {
+    input = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  const command = input?.tool_name === "Bash" ? input?.tool_input?.command : undefined;
+  if (typeof command !== "string") return;
+
+  const requests = findPackageRequests(command);
+  if (requests.length === 0) return;
+  const { level, findings } = await evaluate(requests);
+  if (level === "pass") return;
+
+  const reasons = findings.filter((f) => f.level !== "pass").map((f) => `- ${f.message}`);
+  console.log(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: level,
+        permissionDecisionReason: `dep-rec ${level === "deny" ? "blocked" : "flagged"} this command:\n${reasons.join("\n")}`,
+      },
+    }),
+  );
+}
+
 async function main(): Promise<void> {
   const [, , command, ...rest] = process.argv;
 
@@ -224,6 +260,8 @@ async function main(): Promise<void> {
       return runCategories(rest);
     case "fix":
       return runFix(rest);
+    case "hook":
+      return runHook();
     case undefined:
     case "-h":
     case "--help":

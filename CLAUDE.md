@@ -7,6 +7,7 @@ npm package `dep-rec` (CLI `dep-rec` + MCP stdio server `dep-rec-mcp-server`). R
 - `src/mcp/`: hand-rolled JSON-RPC/MCP stdio (`protocol.ts`) + arg validation. No SDK at runtime.
 - `src/sources/`: npm registry + OSV clients.
 - `src/fix/`: `dep-rec fix` (lockfile scan, semver subset, planner, apply with rollback).
+- `src/hook/`: `dep-rec hook`, Claude Code PreToolUse hook (command tokenizer + install verdicts). Never emits "allow"; fails open.
 - `src/store/`: JSON store (`db.ts`, file lock), scoring, eligibility, typosquat, version-safety (30-day cooldown).
 - `data/store.json`: shipped curated store (499 rows, read-only at runtime; users write `~/.dep-rec/store.json`), seeded from `stage1-collector/data/packages.json` via `npm run seed-db`.
 - `stage1-collector/`: dataset collector, feeds seed. `example-consumer/`: black-box install test.

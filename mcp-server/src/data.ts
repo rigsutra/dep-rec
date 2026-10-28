@@ -1,8 +1,8 @@
 import { listAllCategoryCounts, listByCategory, listAll, listNameDownloads } from "./store/db.js";
 import { getOrFetchPackage } from "./store/lookup.js";
-import { searchPackages } from "./sources/npm.js";
+import { fetchWeeklyDownloadsBulk, searchPackages } from "./sources/npm.js";
 import type { PackageRow } from "./store/db.js";
-import { checkTyposquat } from "./store/typosquat.js";
+import { checkTyposquat, squatRiskMarkers } from "./store/typosquat.js";
 import { checkRecommendable, isRecommendable } from "./store/eligibility.js";
 import { guidanceAsOf, parseDecision } from "./store/version-safety.js";
 import type { RegistryMissCode } from "./sources/npm.js";
@@ -488,7 +488,11 @@ export interface CheckPackageResult {
   typosquatWarning?: {
     targetPackage: string;
     targetWeeklyDownloads: number;
+    /** "typo": one slip away. "combo": the target's name plus an affix. */
+    kind: "typo" | "combo";
     reason: string;
+    /** What makes this look like an attack rather than an unlucky name; empty for an established package. */
+    riskMarkers: string[];
   };
   recommendable?: boolean;
   notRecommendableBecause?: string[];
@@ -538,11 +542,11 @@ export async function checkPackage(name: string): Promise<CheckPackageResult> {
 
   // A resolvable typosquat — a real, installable package one character
   // off from something hugely popular — is the actual attack pattern.
-  // Checked against every name in our own store plus a small curated
-  // list of famous packages outside the 10 categories, so this doesn't
-  // depend on the checked name already being known-bad.
+  // Checked against every name in our own store, a small curated list of
+  // famous packages, and a live probe of npm for the names this one could be
+  // a slip of, so it doesn't depend on the target already being known.
   const storeDownloads = listNameDownloads();
-  const typosquat = await checkTyposquat(row.name, row.weekly_downloads, storeDownloads, !row.downloads_check_failed);
+  const typosquat = await checkTyposquat(row.name, row.weekly_downloads, storeDownloads, !row.downloads_check_failed, fetchWeeklyDownloadsBulk);
 
   // check_package answers for any package, including ones this tool would
   // never put forward itself. Saying so explicitly is the point: "here is
@@ -570,7 +574,13 @@ export async function checkPackage(name: string): Promise<CheckPackageResult> {
         ? { recommendedVersion: row.recommended_version, reason: row.version_guidance }
         : undefined),
     typosquatWarning: typosquat.suspicious
-      ? { targetPackage: typosquat.targetPackage!, targetWeeklyDownloads: typosquat.targetWeeklyDownloads!, reason: typosquat.reason! }
+      ? {
+          targetPackage: typosquat.targetPackage!,
+          targetWeeklyDownloads: typosquat.targetWeeklyDownloads!,
+          kind: typosquat.kind!,
+          reason: typosquat.reason!,
+          riskMarkers: squatRiskMarkers(row),
+        }
       : undefined,
     recommendable: eligibility.eligible,
     notRecommendableBecause: eligibility.eligible ? undefined : eligibility.failures,

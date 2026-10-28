@@ -7,7 +7,7 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { checkTyposquat, KNOWN_POPULAR_PACKAGES } from "../src/store/typosquat.js";
+import { checkTyposquat, squatRiskMarkers, KNOWN_POPULAR_PACKAGES } from "../src/store/typosquat.js";
 import { INVALID_NAMES, HOSTILE_NAMES, HOMOGLYPH_NAMES } from "./helpers.js";
 
 // Independent Damerau-Levenshtein (optimal string alignment) — deliberately a
@@ -133,16 +133,18 @@ describe("threshold behaviour — must not libel legitimate packages", () => {
   });
 });
 
-describe("distance-2+ shapes are outside the envelope (documented, not silently wrong)", () => {
-  // These must NOT be reported as confident detections, because the detector
-  // only claims distance-1 coverage. The test asserts the tool stays honest
-  // (no false claim, no crash) rather than asserting it catches them.
+describe("distance-2+ shapes: only affixes are claimed (combosquats)", () => {
+  // The detector claims distance-1 typos plus one affix added to a popular
+  // name. Anything it reports must be one of those two shapes, never a
+  // looser guess.
   const beyond = ["reactjs", "react-js", "node-react", "expressjs", "js-lodash", "npm-lodash", "lodash-js"];
 
   for (const name of beyond) {
     test(`${name} is handled without a bogus claim`, async () => {
       const res = await checkTyposquat(name, OBSCURE, storeWith("react", 150_000_000));
-      if (res.suspicious) {
+      if (res.suspicious && res.kind === "combo") {
+        assert.ok(name !== res.targetPackage && name.includes(res.targetPackage!), `combo claim ${name} -> ${res.targetPackage} is not an affix`);
+      } else if (res.suspicious) {
         // Allowed only if it really is distance 1 from something in the map.
         const d = damerau(name, res.targetPackage!);
         assert.equal(d, 1, `claimed ${name} squats ${res.targetPackage} but distance is ${d}`);
@@ -275,5 +277,64 @@ describe("curated popular-package list hygiene", () => {
       const res = await checkTyposquat(short, 5, new Map([["abd", 200_000_000], ["abcd", 200_000_000], ["bc", 200_000_000]]));
       assert.equal(res.suspicious, false, `${short} is too short to accuse meaningfully`);
     }
+  });
+});
+
+// The live probe asks npm which plausible source names exist, so a squat of
+// a package in neither the store nor the curated list is still caught. The
+// probe is injected here; the real one is fetchWeeklyDownloadsBulk.
+describe("live npm probe", () => {
+  const probeOf = (known: Record<string, number>) => async (names: string[]) =>
+    new Map(names.map((n): [string, number | null] => [n, known[n] ?? null]));
+
+  test("a typo of a package outside the store and curated list is caught", async () => {
+    const res = await checkTyposquat("nodemin", 32, new Map(), true, probeOf({ nodemon: 11_000_000 }));
+    assert.equal(res.suspicious, true);
+    assert.equal(res.targetPackage, "nodemon");
+    assert.equal(res.kind, "typo");
+  });
+
+  test("a dropped last letter is probed", async () => {
+    const res = await checkTyposquat("nodemo", 260, new Map(), true, probeOf({ nodemon: 11_000_000 }));
+    assert.equal(res.targetPackage, "nodemon");
+  });
+
+  test("an affixed name is caught as a combosquat", async () => {
+    for (const name of ["huskyjs", "husky-js", "node-husky", "husky-cli", "husky-utils"]) {
+      const res = await checkTyposquat(name, 3, new Map(), true, probeOf({ husky: 30_000_000 }));
+      assert.equal(res.suspicious, true, name);
+      assert.equal(res.kind, "combo", name);
+      assert.equal(res.targetPackage, "husky", name);
+    }
+  });
+
+  test("a probed target needs real popularity, not just a 100x ratio", async () => {
+    const res = await checkTyposquat("nodemin", 1, new Map(), true, probeOf({ nodemon: 90_000 }));
+    assert.equal(res.suspicious, false, "90k/week is under the 100k floor for an unvouched target");
+  });
+
+  test("a failed probe falls back to the local candidates", async () => {
+    const store = new Map([["express", 120_000_000]]);
+    const res = await checkTyposquat("expresss", 492, store, true, async () => null);
+    assert.equal(res.targetPackage, "express");
+    const none = await checkTyposquat("nodemin", 32, new Map(), true, async () => null);
+    assert.equal(none.suspicious, false);
+  });
+
+  test("scoped names are not probed (the bulk endpoint cannot answer for them)", async () => {
+    let called = false;
+    await checkTyposquat("@acme/nodemin", 1, new Map(), true, async () => ((called = true), new Map()));
+    assert.equal(called, false);
+  });
+});
+
+describe("squat risk markers", () => {
+  const now = Date.parse("2026-10-28T00:00:00Z");
+  test("new, install scripts, single version", () => {
+    const m = squatRiskMarkers({ created_at: "2026-10-20T00:00:00Z", has_install_scripts: true, release_cadence_days: null }, now);
+    assert.deepEqual(m, ["first published 8 day(s) ago", "runs install scripts", "only one version ever published"]);
+  });
+  test("an established package has none", () => {
+    assert.deepEqual(squatRiskMarkers({ created_at: "2015-01-01T00:00:00Z", has_install_scripts: false, release_cadence_days: 30 }, now), []);
   });
 });

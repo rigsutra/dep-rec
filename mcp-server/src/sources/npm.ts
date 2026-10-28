@@ -357,3 +357,42 @@ export async function fetchWeeklyDownloads(name: string): Promise<number | null>
     return null;
   }
 }
+
+const BULK_LIMIT = 128;
+
+/**
+ * Weekly downloads for many unscoped names in one request per 128, as the
+ * typosquat probe needs. A name that does not exist maps to null; the whole
+ * result is null when the endpoint could not answer, so a caller can tell
+ * "none of these exist" from "nothing was checked". Scoped names are not
+ * supported by the bulk endpoint and are dropped.
+ */
+export async function fetchWeeklyDownloadsBulk(names: string[]): Promise<Map<string, number | null> | null> {
+  const out = new Map<string, number | null>();
+  const unscoped = [...new Set(names)].filter((n) => !n.startsWith("@"));
+  for (let i = 0; i < unscoped.length; i += BULK_LIMIT) {
+    const chunk = unscoped.slice(i, i + BULK_LIMIT);
+    const res = await paced(() => fetchWithRetry(`${DOWNLOADS}/${chunk.join(",")}`, { headers: { "User-Agent": UA } }, noteThrottled));
+    if (res === null) return null;
+    // Asking only for names that do not exist is answered with a 404.
+    if (res.status === 404) {
+      for (const n of chunk) out.set(n, null);
+      continue;
+    }
+    if (!res.ok) return null;
+    noteSucceeded();
+    let data: any;
+    try {
+      data = await res.json();
+    } catch {
+      return null;
+    }
+    // A single name gets the single-package shape, not a keyed object.
+    const entryFor = (n: string) => (chunk.length === 1 ? data : data?.[n]);
+    for (const n of chunk) {
+      const d = entryFor(n)?.downloads;
+      out.set(n, typeof d === "number" && Number.isFinite(d) ? d : null);
+    }
+  }
+  return out;
+}

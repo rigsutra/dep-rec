@@ -17,14 +17,23 @@ before it lands in your `package.json`. `dep-rec` answers from the live npm
 registry and OSV with a deterministic score — never from a model's memory of
 what was popular when it was trained.
 
-Runs as an **MCP server** an assistant calls mid-conversation, and as a plain
-**CLI** for humans, scripts and CI.
+Runs as an **MCP server** an assistant calls mid-conversation, as a
+**Claude Code hook** that checks every install an agent attempts before it
+runs, and as a plain **CLI** for humans, scripts and CI. `dep-rec fix` patches
+the vulnerable packages already in your lockfile, without major upgrades.
 
 ## Features
 
 - **Catches hallucinated packages** — a real registry 404, reported as such
-- **Catches typosquats that resolve** — `csvparser` vs `csv-parser`, the
-  attack that a 404 check misses entirely
+- **Catches typosquats and combosquats that resolve** — `csvparser` vs
+  `csv-parser`, `huskyjs` vs `husky` — by probing npm live for the names a
+  package could be impersonating, not just a stored list
+- **Guards agent installs** — a Claude Code hook blocks hallucinated names,
+  squats, versions under 30 days old and vulnerable versions before
+  `npm install` runs, and tells the agent what to use instead
+- **Fixes what is already installed** — `dep-rec fix` upgrades vulnerable
+  direct and transitive packages within their major version, only to releases
+  30+ days old, runs your tests, and rolls back if they fail
 - **Version-scoped CVE checks** — OSV queried against the *current* version,
   so long-patched advisories aren't reported as live ones
 - **Flags install scripts** — `preinstall`/`install`/`postinstall`, the
@@ -201,6 +210,7 @@ dep-rec check <package-name> [--json] [--db <path>]
 dep-rec recommend "<need>" [--runtime node|edge] [--license MIT] [--limit 1-20] [--json] [--db <path>]
 dep-rec categories [--json] [--db <path>]
 dep-rec fix [--apply] [--no-test] [--dir <path>] [--json]
+dep-rec hook      # Claude Code PreToolUse hook, reads the tool call on stdin
 ```
 
 | Flag | Effect |
@@ -240,6 +250,47 @@ and conflicts are listed with the reason.
 
 Exit codes: `0` nothing left to fix, `2` vulnerabilities remain, `1` error or
 rollback.
+
+## Guard installs with a Claude Code hook
+
+`dep-rec hook` checks every package an AI agent tries to install or run
+(`npm i`, `pnpm add`, `yarn add`, `bun add`, `npx`, `pnpm dlx`, `yarn dlx`,
+`bunx`) before the command runs. The agent gets the reason, and a safe
+version to use instead where there is one.
+
+| Blocked | Asked about |
+|---|---|
+| A name that does not exist on npm (the hallucination signature) | A deprecated package |
+| A typosquat or combosquat that is new, runs install scripts, or has one version | A name with no installable version |
+| | A lookalike of a popular package that is otherwise established |
+| A version under 30 days old | |
+| A version with known vulnerabilities | |
+
+Everything else gets no answer from the hook, so your own permission rules
+still decide; it never auto-approves anything. If npm or OSV can't be reached,
+the command goes through rather than blocking your shell. Bare `npm install`,
+local paths, git URLs and tarballs are not checked.
+
+Install it globally, then add the hook to `~/.claude/settings.json` (every
+project) or `.claude/settings.json` (one project):
+
+```bash
+npm install -g dep-rec
+```
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "dep-rec hook" }] }
+    ]
+  }
+}
+```
+
+It runs on every Bash call but exits at once unless the command installs or
+runs a package. `npx -y dep-rec hook` works without the global install, at
+the cost of npx startup on every Bash call.
 
 ## How it scores
 
